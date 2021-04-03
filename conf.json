@@ -1,0 +1,14 @@
+{
+    "mqtt": {
+        "server": "192.168.88.12",
+        "user": "server",
+        "password": "kal1966",
+        "object_name": "sh",
+        "ping_topic": "globalping"
+    },
+    "logging": {
+        "file": "syralog.log",
+        "level": "INFO"
+    }
+}
+
