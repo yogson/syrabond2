@@ -7,11 +7,11 @@ from .models import *
 
 
 def make_on(modeladmin, request, queryset):
-    [n.on() for n in queryset]
+    [n.on(direct=True) for n in queryset]
 
 
 def make_off(modeladmin, request, queryset):
-    [n.off() for n in queryset]
+    [n.off(direct=True) for n in queryset]
 
 
 def make_connect(modeladmin, request, queryset):
@@ -36,6 +36,10 @@ def switches_on(modeladmin, request, queryset):
     [n.on() for n in resources]
 
 
+def check_switches(modeladmin, request, queryset):
+    for item in queryset:
+        item.engage()
+
 class ScheduleInline(admin.TabularInline):
     model = Schedule
     fk_name = 'scenario'
@@ -58,17 +62,12 @@ class ControllerForm(forms.ModelForm):
 
 class AggForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
-        if kwargs.get('instance'):
-            print('kal')
-
 
         super().__init__(*args, **kwargs)
-        self.fields['switches'].queryset = Switch.objects.filter(aggregates__in=[self.instance])
-        self.fields['sensors'].queryset = Sensor.objects.filter(aggregates__in=[self.instance])
-        self.fields['scenarios'].queryset = Scenario.objects.filter(aggregates__in=[self.instance])
-        self.fields['scenarios'].widget.can_delete_related = True
-        self.fields['scenarios'].widget.can_view_related = True
-        self.fields['scenarios'].widget.can_change_related = True
+        for field in ('switches', 'sensors', 'scenarios'):
+            self.fields[field].widget.can_delete_related = True
+            self.fields[field].widget.can_view_related = True
+            self.fields[field].widget.can_change_related = True
 
 class AggAdmin(admin.ModelAdmin):
     form = AggForm
@@ -85,7 +84,7 @@ class PremAdmin(admin.ModelAdmin):
 
 class ResAdmin(admin.ModelAdmin):
     actions = [make_on, make_off]
-    list_display = ('title', 'topic', 'state', 'aggregates')
+    list_display = ('title', 'topic', 'state', 'updated_at', 'aggregates')
 
 
 class GroupAdmin(admin.ModelAdmin):
@@ -95,6 +94,15 @@ class GroupAdmin(admin.ModelAdmin):
 
 class ConAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'check_condition', )
+
+
+class BehAdmin(admin.ModelAdmin):
+    actions = [check_switches]
+    list_display = ('__str__', 'on', 'off')
+
+
+class RegAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'signal')
 
 
 class ScenForm(forms.ModelForm):
@@ -110,15 +118,13 @@ class ScenForm(forms.ModelForm):
             self.fields['conditions_type'].disabled = True
 
 
-
-
 class ScenAdmin(admin.ModelAdmin):
     form = ScenForm
     inlines = [
         ScheduleInline,
     ]
     actions = (workout, )
-    list_display = ('__str__', 'check_conditions')
+    list_display = ('__str__',)
 
 
 class StatedVirtualDeviceAdmin(admin.ModelAdmin):
@@ -139,3 +145,5 @@ admin.site.register(Action)
 admin.site.register(StatedVirtualDevice, StatedVirtualDeviceAdmin)
 admin.site.register(Schedule)
 admin.site.register(Aggregate, AggAdmin)
+admin.site.register(Behavior, BehAdmin)
+admin.site.register(Regulator, RegAdmin)

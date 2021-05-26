@@ -1,3 +1,8 @@
+import json
+from datetime import datetime, timedelta
+
+import django.db.models
+from django.utils import timezone
 from django.db import models
 from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
@@ -18,6 +23,11 @@ DAYS_OF_WEEK = (
 
 
 class BaseModel(models.Model):
+
+    updated_at = models.DateTimeField(
+        verbose_name='Обновлено',
+        auto_now=True
+    )
 
     class Meta:
         abstract = True
@@ -225,7 +235,8 @@ class Resource(BaseModel, TitledModel):
         verbose_name='Объект',
         related_name="%(class)s_resources",
         blank=False,
-        null=True,
+        null=False,
+        default=Facility.objects.first().pk,
         on_delete=models.CASCADE
     )
 
@@ -250,7 +261,15 @@ class Resource(BaseModel, TitledModel):
     state = models.JSONField(
         verbose_name='Состояние',
         blank=True,
-        null=True
+        null=False,
+        default=dict
+    )
+
+    channels = models.ManyToManyField(
+        Channel,
+        verbose_name='Каналы',
+        related_name="%(class)s_resources",
+        blank=True
     )
 
     tags = models.ManyToManyField(
@@ -276,11 +295,16 @@ class Resource(BaseModel, TitledModel):
     def __repr__(self):
         return str(self)
 
-    def get_state(self):
+    def get_state(self, channel=None):
         if self.state is None:
+            self.state = {}
+            self.save()
             return None
         else:
-            return self.state.get('state') if self.state.get('state') else self.state.get('data')
+            if channel:
+                return self.state.get(channel)
+            else:
+                return self.state.get('state') or self.state.get('data')
     get_state.short_description = 'Состояние'
 
     @property
@@ -310,23 +334,32 @@ class StatedVirtualDevice(BaseModel):
     state = models.JSONField(
         verbose_name='Состояние',
         blank=True,
-        null=True
+        null=False,
+        default=dict
+    )
+
+    settings = models.JSONField(
+        verbose_name='Настройки',
+        blank=True,
+        null=False,
+        default=dict
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.pk:
-            self.update_state()
-
+            self.engage()
 
     def __str__(self):
         return self.virtual_class
 
-    def update_state(self):
-        inst = instance_klass(self.virtual_class)
-        self.state = {
-            'state': inst()
-        }
+    def engage(self):
+
+        inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
+
+        self.state = inst()
+
+        self.save()
 
     @property
     def state_clear(self):
@@ -336,6 +369,7 @@ class StatedVirtualDevice(BaseModel):
         verbose_name = 'Виртуальное устройство',
         verbose_name_plural = 'Виртуальные устройства'
 
+
 class ConnectedStatedResource(Resource):
     listener = mqtt
 
@@ -343,10 +377,16 @@ class ConnectedStatedResource(Resource):
     def connect(listener, topic):
         listener.subscribe(topic)
 
+    def add_channel(self, channel):
+        channel_record = Channel.objects.get_or_create(key=channel)[0]
+        self.channels.set((*self.channels.all(), channel_record))
+
     def update_state(self, state, channel=None):
         if state.isdigit():
             state = float(state)
         if channel:
+            if channel not in self.channels.all():
+                self.add_channel(channel)
             if self.state:
                 self.state.update({channel: state})
             else:
@@ -354,6 +394,13 @@ class ConnectedStatedResource(Resource):
         else:
             self.state = {'state': state}
         self.save()
+
+        if self.extra:
+            if self.extra.get('tracked'):
+                with open('history.csv', 'a') as f:
+                    f.write(
+                        f'{datetime.now().timestamp()},{self.uid},{channel},{state}\n'
+                    )
 
     class Meta:
         abstract = True
@@ -388,33 +435,51 @@ class SwitchApp(ConnectedStatedResource):
         super().__init__(*args, **kwargs)
 
     @property
-    def __state(self):
+    def state_(self):
         return self.state.get('state')
 
     def switch(self, cmd):
         if hasattr(SwitchApp, cmd):
             getattr(self, cmd)()
 
-    def _turn(self, position):
+    def publish_cmd(self, cmd):
         try:
-            self.listener.mqttsend(self.topic, position, retain=True)
-            self.update_state(position)
+            self.listener.mqttsend(self.topic, cmd, retain=True)
+            self.update_state(cmd)
             return True
         except Exception as e:
-            print(f'Error while turning {self.uid} {position}: {e}')
+            print(f'Error while publishing {self.uid} {cmd}: {e}')
             return False
 
-    def on(self):
-        self._turn('on')
+    def _turn(self, position, direct=False):
+        # Process direct command
+        if direct:
+            return self.publish_cmd(position)
+        # Process indirect command (automation, etc)
+        if datetime.fromtimestamp(self.extra.get('freeze_until', 0)) <= datetime.now():
+            self.extra.update({'freeze_until': datetime.timestamp(datetime.now() + timedelta(minutes=1))})
+            self.save()
+            self.publish_cmd(position)
 
-    def off(self):
-        self._turn('off')
+    @property
+    def switched_off(self):
+        return self.state_ == 'off'
+
+    @property
+    def switched_on(self):
+        return self.state_ == 'on'
+
+    def on(self, direct=False):
+        self._turn('on', direct)
+
+    def off(self, direct=False):
+        self._turn('off', direct)
 
     def toggle(self):
         try:
-            if self.state.get('state') == 'off':
+            if self.switched_off:
                 self._turn('on')
-            elif self.state.get('state') == 'on':
+            elif self.switched_on:
                 self._turn('off')
             return True
         except Exception as e:
@@ -439,6 +504,30 @@ class SensorApp(ConnectedStatedResource):
 
 
 class Switch(SwitchApp):
+
+    behavior = models.ForeignKey(
+        'Behavior',
+        verbose_name='Поведение',
+        related_name='switches',
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+
+    regulator = models.ForeignKey(
+        'Regulator',
+        verbose_name='Регулятор',
+        related_name='switches',
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+
+    controlled = models.BooleanField(
+        verbose_name='Управляется',
+        blank=False,
+        default=False
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -503,10 +592,76 @@ class HeatingController(HeatingControllerApp):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-
     class Meta:
         verbose_name = 'Контроллер отопления',
         verbose_name_plural = 'Контроллеры отопления'
+
+
+class Regulator(BaseModel):
+
+    sensor = models.ForeignKey(
+        Sensor,
+        verbose_name='Датчик',
+        related_name='regulators',
+        on_delete=models.CASCADE,
+        blank=False
+    )
+
+    channel = models.ForeignKey(
+        Channel,
+        verbose_name='Канал датчика',
+        related_name='regulators',
+        on_delete=models.CASCADE,
+        blank=False,
+        null=True
+    )
+
+    lower_bond = models.FloatField(
+        verbose_name='Нижний порог',
+        blank=False
+    )
+
+    upper_bond = models.FloatField(
+        verbose_name='Верхний порог',
+        blank=False
+    )
+
+    class Directions(models.IntegerChoices):
+        direct = True
+        reverse = False
+
+    direction = models.BooleanField(
+        verbose_name='Действие',
+        choices=Directions.choices,
+        null=False,
+        default= True
+    )
+
+    def signal(self):
+        self.sensor.refresh_from_db()
+        metric = self.sensor.get_state(self.channel.key)
+        try:
+            metric = float(metric)
+        except ValueError:
+            return
+        if metric >= self.upper_bond:
+            return not self.direction
+        if metric <= self.lower_bond:
+            return self.direction
+
+    def engage(self):
+        for switch in self.switches.filter(controlled=True):
+            if self.signal() is True and switch.switched_off:
+                switch.on()
+            if self.signal() is False and switch.switched_on:
+                switch.off()
+
+    def __str__(self):
+        return f"{dict(self.Directions.choices).get(self.direction)} regulator of {self.sensor} ({self.upper_bond}->{self.lower_bond})"
+
+    class Meta:
+        verbose_name = 'Регулятор',
+        verbose_name_plural = 'Регуляторы'
 
 
 class Schedule(BaseModel):
@@ -515,13 +670,15 @@ class Schedule(BaseModel):
         verbose_name='Ежедневно',
         null=False,
         blank=False,
-        default='False'
+        default='True'
     )
 
     days = models.CharField(
         verbose_name='Дни недели',
         max_length=20,
-        validators=(validate_comma_separated_integer_list, )
+        validators=(validate_comma_separated_integer_list, ),
+        null=True,
+        blank=True
     )
 
     time = models.TimeField(
@@ -533,7 +690,35 @@ class Schedule(BaseModel):
         verbose_name='Сценарий',
         related_name='schedules',
         on_delete=models.CASCADE
+
     )
+
+    def check_schedule(self):
+        now = datetime.now(tz=timezone.get_current_timezone())
+
+        if self.daily:
+            return all((
+                self.time.hour == now.hour,
+                self.time.minute == now.minute
+            ))
+        else:
+            return all((
+                str(now.weekday()) in self.days,
+                self.time.hour == now.hour,
+                self.time.minute == now.minute
+            ))
+
+    def save(self, *args, **kwargs):
+        self.time = self.time.replace(self.time.hour, self.time.minute, 0, 0)
+
+        if self.daily:
+            self.days = None
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'Расписание {self.pk}'
+
 
     class Meta:
         verbose_name = 'Расписание',
@@ -608,7 +793,7 @@ class Condition(BaseModel):
         return eval(f'"{state}" {self.comparison} "{self.state}"')
 
     def __str__(self):
-        return f'{self.object} {self.comparison} {self.state}'
+        return f'{self.object} {(str(self.channel) + " ") if self.channel else ""}{self.comparison} {self.state}'
 
     class Meta:
         verbose_name = 'Условие',
@@ -651,14 +836,7 @@ class Action(BaseModel):
         verbose_name_plural = 'Действия'
 
 
-class Scenario(BaseModel, TitledModel):
-
-    conditions = models.ManyToManyField(
-        Condition,
-        verbose_name='Условия',
-        related_name="scenarios",
-        blank=True
-    )
+class ConditionTypedModel(models.Model):
 
     conditions_type = models.CharField(
         verbose_name='Сочетание условий',
@@ -672,6 +850,69 @@ class Scenario(BaseModel, TitledModel):
         default='&'
     )
 
+    def target_conditions(self, conditions: django.db.models.QuerySet):
+        all_conditions = (condition.check_condition() for condition in conditions.all())
+        if self.conditions_type == '|':
+            return any(all_conditions)
+        else:
+            return all(all_conditions)
+
+    class Meta:
+        abstract = True
+
+
+class Behavior(BaseModel, TitledModel, ConditionTypedModel):
+
+    conditions_on = models.ManyToManyField(
+        Condition,
+        verbose_name='Условия включения',
+        related_name="behaviors_on",
+        blank=True
+    )
+
+    conditions_off = models.ManyToManyField(
+        Condition,
+        verbose_name='Условия выключения',
+        related_name="behaviors_off",
+        blank=True
+    )
+
+    @property
+    def on(self):
+        return self.target_conditions(self.conditions_on)
+
+    @property
+    def off(self):
+        return self.target_conditions(self.conditions_off)
+
+    def engage(self):
+        # if self.on and self.off:
+        #     return
+        if self.off:
+            for switch in self.switches.filter(controlled=True):
+                if switch.state_ == 'on':
+                    switch.off()
+                    return
+        if self.on:
+            for switch in self.switches.filter(controlled=True):
+                if switch.state_ == 'off':
+                    switch.on()
+
+
+    class Meta:
+        verbose_name = 'Поведение',
+        verbose_name_plural = 'Шаблоны поведения'
+
+
+class Scenario(BaseModel, TitledModel, ConditionTypedModel):
+
+    conditions = models.ManyToManyField(
+        Condition,
+        verbose_name='Условия',
+        related_name="scenarios",
+        blank=True
+    )
+
     actions = models.ManyToManyField(
         Action,
         verbose_name='Действия',
@@ -679,23 +920,59 @@ class Scenario(BaseModel, TitledModel):
         blank=True
     )
 
-    def check_conditions(self):
-        conditions = set()
-        for cond in self.conditions.all():
-            conditions.update({cond.check_condition()})
-        if self.conditions_type == '|':
-            return True if True in conditions else False
-        else:
-            return True if conditions == {True} else False
+    active = models.BooleanField(
+        verbose_name='Активен',
+        null=False,
+        blank=False,
+        default=False
+    )
+
+    _armed = models.BooleanField(
+        null=False,
+        blank=False,
+        default=False
+    )
+
+    def arm(self):
+        self._armed = True
+        self.save()
+
+    def disarm(self):
+        self._armed = False
+        self.save()
 
     def work_out(self):
-        if self.check_conditions():
+        if self.target_conditions(conditions=self.conditions):
             for action in self.actions.all():
                 action.do()
 
-    def sched(self):
-        return self.schedules.all()
+    def fire(self):
+        if not self._armed:
+            print('Run scenario', self)
+            self.arm()
+            self.work_out()
 
+    @property
+    def schedule(self):
+        return any((
+            sched.check_schedule() for sched in self.schedules.all()
+        ))
+
+    def engage(self):
+        if self.active and self.schedule and self.target_conditions(conditions=self.conditions):
+            return self.fire()
+
+        if self._armed:
+            self.disarm()
+
+    def save(self, *args, **kwargs):
+        if self.id and not self.conditions.exists():
+            self.conditions_type = '&'
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.title
 
     class Meta:
         verbose_name = 'Сценарий',

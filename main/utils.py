@@ -30,6 +30,6 @@ def get_classes() -> list:
     return [(x[0], x[0]) for x in classes]
 
 
-def instance_klass(klass):
+def instance_klass(klass, **kwargs):
     module = main.plugins
-    return getattr(module, klass)()
+    return getattr(module, klass)(**kwargs)
