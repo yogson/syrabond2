@@ -236,7 +236,7 @@ class Resource(BaseModel, TitledModel):
         related_name="%(class)s_resources",
         blank=False,
         null=False,
-        default=Facility.objects.first().pk,
+        default=1,
         on_delete=models.CASCADE
     )
 
