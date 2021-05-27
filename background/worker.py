@@ -34,7 +34,7 @@ class MessageHandler:
             for model in (Sensor, Switch):
                 qs = model.objects.all()
                 for obj in qs:
-                    print(obj)
+                    #print(obj)
                     obj.connect(obj.listener, obj.topic)
                     self.resources.update({obj.uid: obj})
             self.loaded = True
