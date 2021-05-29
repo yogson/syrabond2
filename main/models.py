@@ -478,7 +478,7 @@ class SwitchApp(ConnectedStatedResource):
 
     @property
     def state_(self):
-        return self.state.get('state')
+        return self.get_state()
 
     def switch(self, cmd):
         if hasattr(SwitchApp, cmd):
@@ -520,9 +520,9 @@ class SwitchApp(ConnectedStatedResource):
     def toggle(self):
         try:
             if self.switched_off:
-                self._turn('on')
+                self.on(direct=True)
             elif self.switched_on:
-                self._turn('off')
+                self.off(direct=True)
             return True
         except Exception as e:
             print(f'Error while toggling {self.uid}: {e}')

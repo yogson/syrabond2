@@ -16,7 +16,6 @@ class RegularHandler:
 
     def check(self):
         for item in self.instances:
-            print('checking', item, '...')
             item.engage()
 
 
