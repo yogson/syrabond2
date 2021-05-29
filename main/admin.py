@@ -13,6 +13,8 @@ def make_on(modeladmin, request, queryset):
 def make_off(modeladmin, request, queryset):
     [n.off(direct=True) for n in queryset]
 
+def make_push(modeladmin, request, queryset):
+    [n.push() for n in queryset]
 
 def make_connect(modeladmin, request, queryset):
     [n.connect() for n in queryset]
@@ -69,6 +71,7 @@ class AggForm(forms.ModelForm):
             self.fields[field].widget.can_view_related = True
             self.fields[field].widget.can_change_related = True
 
+
 class AggAdmin(admin.ModelAdmin):
     form = AggForm
 
@@ -85,6 +88,10 @@ class PremAdmin(admin.ModelAdmin):
 class ResAdmin(admin.ModelAdmin):
     actions = [make_on, make_off]
     list_display = ('title', 'topic', 'state', 'updated_at', 'aggregates')
+
+
+class ButAdmin(admin.ModelAdmin):
+    actions = [make_push]
 
 
 class GroupAdmin(admin.ModelAdmin):
@@ -143,6 +150,7 @@ admin.site.register(Scenario, ScenAdmin)
 admin.site.register(Condition, ConAdmin)
 admin.site.register(Action)
 admin.site.register(Facility)
+admin.site.register(Button, ButAdmin)
 admin.site.register(StatedVirtualDevice, StatedVirtualDeviceAdmin)
 admin.site.register(Schedule)
 admin.site.register(Aggregate, AggAdmin)
