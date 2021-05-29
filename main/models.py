@@ -73,13 +73,14 @@ class StatedModel(models.Model):
         if self.state is None:
             self.state = {}
         if channel:
-            return self.state.update({
+            self.state.update({
                 channel: state
             })
         else:
-            return self.state.update({
+            self.state.update({
                 'state': state
             })
+        self.save()
 
     class Meta:
         abstract = True
