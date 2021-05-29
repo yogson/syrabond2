@@ -47,6 +47,74 @@ class TitledModel(models.Model):
         abstract = True
 
 
+class StatedModel(models.Model):
+
+    state = models.JSONField(
+        verbose_name='Состояние',
+        blank=True,
+        null=False,
+        default=dict
+    )
+
+    def get_state(self, channel=None):
+        if self.state is None:
+            self.state = {}
+            self.save()
+            return None
+        else:
+            if channel:
+                return self.state.get(channel)
+            else:
+                return self.state.get('state') or self.state.get('data')
+
+    get_state.short_description = 'Состояние'
+
+    def set_state(self, state, channel=None):
+        if self.state is None:
+            self.state = {}
+        if channel:
+            return self.state.update({
+                channel: state
+            })
+        else:
+            return self.state.update({
+                'state': state
+            })
+
+    class Meta:
+        abstract = True
+
+
+class Button(BaseModel, TitledModel, StatedModel):
+
+    latching = models.BooleanField(
+        verbose_name='фиксация',
+        null=False,
+        default=False
+    )
+
+    actions = models.ManyToManyField(
+        'Action',
+        verbose_name='действия',
+        related_name="buttons",
+        blank=True
+    )
+
+    def push(self):
+        if self.actions:
+            for action in self.actions.all():
+                action.do()
+        if self.latching:
+            if self.get_state() == 'on':
+                self.set_state('off')
+            else:
+                self.set_state('on')
+
+    class Meta:
+        verbose_name = 'Кнопка',
+        verbose_name_plural = 'Кнопки'
+
+
 class Facility(BaseModel, TitledModel):
 
     key = models.CharField(verbose_name='код', max_length=10)
@@ -219,7 +287,7 @@ class Premise(BaseModel, TitledModel):
         verbose_name_plural = 'Местоположения'
 
 
-class Resource(BaseModel, TitledModel):
+class Resource(BaseModel, TitledModel, StatedModel):
 
     uid = models.CharField(
         primary_key=True,
@@ -258,13 +326,6 @@ class Resource(BaseModel, TitledModel):
         on_delete=models.CASCADE
     )
 
-    state = models.JSONField(
-        verbose_name='Состояние',
-        blank=True,
-        null=False,
-        default=dict
-    )
-
     channels = models.ManyToManyField(
         Channel,
         verbose_name='Каналы',
@@ -295,18 +356,6 @@ class Resource(BaseModel, TitledModel):
     def __repr__(self):
         return str(self)
 
-    def get_state(self, channel=None):
-        if self.state is None:
-            self.state = {}
-            self.save()
-            return None
-        else:
-            if channel:
-                return self.state.get(channel)
-            else:
-                return self.state.get('state') or self.state.get('data')
-    get_state.short_description = 'Состояние'
-
     @property
     def topic(self):
         return self.facility.key+'/'+self.type+'/'+self.uid
@@ -321,7 +370,7 @@ class Resource(BaseModel, TitledModel):
         verbose_name_plural = 'Устройства'
 
 
-class StatedVirtualDevice(BaseModel):
+class StatedVirtualDevice(BaseModel, StatedModel):
 
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
@@ -329,13 +378,6 @@ class StatedVirtualDevice(BaseModel):
         blank=False,
         null=False,
         choices=get_classes()
-    )
-
-    state = models.JSONField(
-        verbose_name='Состояние',
-        blank=True,
-        null=False,
-        default=dict
     )
 
     settings = models.JSONField(
@@ -719,7 +761,6 @@ class Schedule(BaseModel):
     def __str__(self):
         return f'Расписание {self.pk}'
 
-
     class Meta:
         verbose_name = 'Расписание',
         verbose_name_plural = 'Расписания'
@@ -830,7 +871,6 @@ class Action(BaseModel):
     def do(self):
         self.switch.__getattribute__(self.state)()
 
-
     class Meta:
         verbose_name = 'Действие',
         verbose_name_plural = 'Действия'
@@ -897,7 +937,6 @@ class Behavior(BaseModel, TitledModel, ConditionTypedModel):
             for switch in self.switches.filter(controlled=True):
                 if switch.state_ == 'off':
                     switch.on()
-
 
     class Meta:
         verbose_name = 'Поведение',
