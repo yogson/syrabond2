@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import requests
 
 
 class Clock:
@@ -17,12 +18,35 @@ class Clock:
 
 class Weather:
 
+    link = "http://api.openweathermap.org/data/2.5/weather?q=Onufriyevo&appid=1c5aecfe6332dd9e8de93ad5c949000f"
+
     def __init__(self, **kwargs):
-        pass
+        self.updated_at = datetime.now()
+        self.data = {}
+        self.update_data()
 
     def __call__(self, *args, **kwargs):
-        return {'state': '0'}
+        if self.updated_at + timedelta(minutes=10) < datetime.now():
+            self.data = self.get_data()
 
+        return {'state': self.data}
+
+    def update_data(self):
+        res = {}
+        try:
+            data = self.get_data()
+        except:
+            return
+        res.update({
+            'sunrise': datetime.fromtimestamp(data.get('sys', {}).get('sunrise', 0)).time().strftime('%H:%M'),
+            'sunset': datetime.fromtimestamp(data.get('sys', {}).get('sunset', 0)).time().strftime('%H:%M'),
+            'current_temp': round(data.get('main', {}).get('temp', 273.15) - 273.15, 1)
+        })
+
+        self.data = res
+
+    def get_data(self):
+        return requests.get(self.link).json()
 
 class Timer:
 
