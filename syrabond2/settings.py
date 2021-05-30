@@ -132,3 +132,8 @@ USE_TZ = True
 STATIC_URL = '/static/'
 MEDIA_URL = '/media/'
 STATIC_ROOT = 'static/'
+
+try:
+    from .local_settings import *
+except ImportError:
+    pass
