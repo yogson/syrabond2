@@ -86,6 +86,44 @@ class StatedModel(models.Model):
         abstract = True
 
 
+class ChanneledModel(models.Model):
+
+    channels = models.ManyToManyField(
+        'Channel',
+        verbose_name='Каналы',
+        related_name="%(class)s_resources",
+        blank=True
+    )
+
+    def add_channel(self, channel):
+        channel_record = Channel.objects.get_or_create(key=channel)[0]
+        self.channels.set((*self.channels.all(), channel_record))
+
+    class Meta:
+        abstract = True
+
+
+class StatedChanneledMixin(StatedModel, ChanneledModel):
+
+    def update_state(self, state, channel=None):
+        if state.isdigit():
+            state = float(state)
+        if channel:
+            if channel not in self.channels.all():
+                self.add_channel(channel)
+            if self.state:
+                self.state.update({channel: state})
+            else:
+                self.state = {channel: state}
+        else:
+            self.state = {'state': state}
+
+        self.save()
+
+    class Meta:
+        abstract = True
+
+
 class Button(BaseModel, TitledModel, StatedModel):
 
     latching = models.BooleanField(
@@ -288,7 +326,7 @@ class Premise(BaseModel, TitledModel):
         verbose_name_plural = 'Местоположения'
 
 
-class Resource(BaseModel, TitledModel, StatedModel):
+class Resource(BaseModel, TitledModel):
 
     uid = models.CharField(
         primary_key=True,
@@ -325,13 +363,6 @@ class Resource(BaseModel, TitledModel, StatedModel):
         blank=True,
         null=True,
         on_delete=models.CASCADE
-    )
-
-    channels = models.ManyToManyField(
-        Channel,
-        verbose_name='Каналы',
-        related_name="%(class)s_resources",
-        blank=True
     )
 
     tags = models.ManyToManyField(
@@ -371,11 +402,12 @@ class Resource(BaseModel, TitledModel, StatedModel):
         verbose_name_plural = 'Устройства'
 
 
-class StatedVirtualDevice(BaseModel, StatedModel):
+class StatedVirtualDevice(BaseModel, StatedChanneledMixin):
 
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
-        max_length=50,
+        max_length=
+        50,
         blank=False,
         null=False,
         choices=get_classes()
@@ -397,11 +429,8 @@ class StatedVirtualDevice(BaseModel, StatedModel):
         return self.virtual_class
 
     def engage(self):
-
         inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
-
         self.state = inst()
-
         self.save()
 
     @property
@@ -413,37 +442,12 @@ class StatedVirtualDevice(BaseModel, StatedModel):
         verbose_name_plural = 'Виртуальные устройства'
 
 
-class ConnectedStatedResource(Resource):
+class ConnectedResource(Resource):
     listener = mqtt
 
     @staticmethod
     def connect(listener, topic):
         listener.subscribe(topic)
-
-    def add_channel(self, channel):
-        channel_record = Channel.objects.get_or_create(key=channel)[0]
-        self.channels.set((*self.channels.all(), channel_record))
-
-    def update_state(self, state, channel=None):
-        if state.isdigit():
-            state = float(state)
-        if channel:
-            if channel not in self.channels.all():
-                self.add_channel(channel)
-            if self.state:
-                self.state.update({channel: state})
-            else:
-                self.state = {channel: state}
-        else:
-            self.state = {'state': state}
-        self.save()
-
-        if self.extra:
-            if self.extra.get('tracked'):
-                with open('history.csv', 'a') as f:
-                    f.write(
-                        f'{datetime.now().timestamp()},{self.uid},{channel},{state}\n'
-                    )
 
     class Meta:
         abstract = True
@@ -451,7 +455,7 @@ class ConnectedStatedResource(Resource):
         verbose_name_plural = 'Устройства'
 
 
-class HeatingControllerApp(ConnectedStatedResource):
+class HeatingControllerApp(ConnectedResource):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -472,7 +476,7 @@ class HeatingControllerApp(ConnectedStatedResource):
         abstract = True
 
 
-class SwitchApp(ConnectedStatedResource):
+class SwitchApp(ConnectedResource, StatedChanneledMixin):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -533,7 +537,7 @@ class SwitchApp(ConnectedStatedResource):
         abstract = True
 
 
-class SensorApp(ConnectedStatedResource):
+class SensorApp(ConnectedResource):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -580,7 +584,7 @@ class Switch(SwitchApp):
         verbose_name_plural = 'Выключатели'
 
 
-class Sensor(SensorApp):
+class Sensor(SensorApp, StatedChanneledMixin):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
