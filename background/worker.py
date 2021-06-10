@@ -64,6 +64,9 @@ def loop():
         sleep(5)
 
 
-t = Thread(target=loop, daemon=True)
-print('Starting scenario daemon...')
-t.start()
+while 1:
+    t = Thread(target=loop, daemon=True)
+    print('Running background automation daemon...')
+    t.start()
+    t.join()
+
