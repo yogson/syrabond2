@@ -56,21 +56,28 @@ class Mqtt:
         self.root = mqtt_config['object_name']
         self.broker = mqtt_config['server']
         self.ping_topic = mqtt_config['ping_topic']
-        self.client = mqtt.Client(self.name, clean_session=self.clean_session)
-        self.client.username_pw_set(username=mqtt_config['user'], password=mqtt_config['password'])
-        self.client.on_message = self.message_to_buffer
-        self.client.on_disconnect = self.on_disconnect
+        self._client = mqtt.Client(self.name, clean_session=self.clean_session)
+        self._client.username_pw_set(username=mqtt_config['user'], password=mqtt_config['password'])
+        self._client.on_message = self.message_to_buffer
+        self._client.on_disconnect = self.on_disconnect
         self.message_buffer = Queue()
         self.external_handler = handler
         self.subscriptions = []
 
+    @property
+    def client(self):
+        while not self.connected:
+            if not self.connect():
+                sleep(1)
+        return self._client
+
     def connect(self):
         try:
             print('Connecting...')
-            #log('Connecting...')
-            if not self.client.connect(self.broker):
+            if not self._client.connect(self.broker):
                 self.connected = True
         except Exception as e:
+            self.connected = False
             log('Connection error: {}'.format(e), log_type='error')
             return False
         log('Connected to broker on {} as {}'.format(self.broker, self.name))
@@ -78,8 +85,6 @@ class Mqtt:
 
     def mqttsend(self, topic: str, msg: str, retain=False):
         """Sends msg to topic. Logs activity and errors."""
-        if not self.connected:
-            self.connect()
         try:
             log(f'Sending {msg} to {topic}...')
             self.client.publish(topic, msg, retain=retain)
@@ -89,16 +94,13 @@ class Mqtt:
         print('Message sent.')
         log('Message sent.', log_type='debug')
         if self.clean_session:
-            self.client.disconnect()
+            self.disconnect()
             self.connected = False
             print('Disconnected')
         return True
 
     def subscribe(self, topic):
         """Subscribes to the topic specifies. Logs activity and errors."""
-        while not self.connected:
-            if not self.connect():
-                sleep(1)
         try:
             if topic not in self.subscriptions:
                 self.client.subscribe(topic)
@@ -108,7 +110,7 @@ class Mqtt:
                 log('Already subscribed on '+topic, log_type='debug')
             return True
         except Exception as e:
-            log('Could not subscribe', log_type='error')
+            log('Could not subscribe: ' + str(e), log_type='error')
             return False
 
     def check_for_messages(self):
@@ -132,11 +134,12 @@ class Mqtt:
                 self.message_buffer.enqueue((message.topic, message.payload.decode()))
 
     def disconnect(self):
-        self.client.disconnect()
+        self._client.disconnect()
         self.connected = False
         print('Disconnected')
 
     def on_disconnect(self, client, userdata, rc=0):
+        self.connected = False
         log("Disconnected result code " + str(rc), log_type='debug')
         client.loop_stop()
 

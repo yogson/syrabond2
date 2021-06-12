@@ -2,7 +2,9 @@ from threading import Thread
 from time import sleep
 from random import randrange
 
+from main.common import log
 from main.models import Scenario, Behavior, Regulator, StatedVirtualDevice
+from main.ops import mqtt
 
 
 class RegularHandler:
@@ -19,54 +21,34 @@ class RegularHandler:
             item.engage()
 
 
-class MessageHandler:
-
-    def __init__(self):
-        self.resources = {}
-        self.loaded = False
-
-    def load_resources(self):
-        if not self.loaded:
-            print('loading...')
-            from main.models import Sensor, Switch
-
-            for model in (Sensor, Switch):
-                qs = model.objects.all()
-                for obj in qs:
-                    print(obj)
-                    obj.connect(obj.listener, obj.topic)
-                    self.resources.update({obj.uid: obj})
-            self.loaded = True
-
-    def handle(self, payload):
-        _type, _id, channel, msg = payload
-
-        resource = self.resources.get(_id)
-        if resource:
-            resource.refresh_from_db()
-            resource.update_state(msg, channel)
-
-
 handler_classes = (Scenario, Behavior, Regulator, StatedVirtualDevice)
 handlers = [RegularHandler(klass) for klass in handler_classes]
 
 
 def loop():
     # Init handlers
+    mqtt.external_handler.load_resources()
+
     for handler in handlers:
         handler.refresh()
 
+    c = 0
+
     while 1:
-        for handler in handlers:
-            if randrange(0, 5) == 4:
-                handler.refresh()
-            handler.check()
-        sleep(5)
+        # Check for new messages
+        mqtt.check_for_messages()
+
+        if c > 3:
+            for handler in handlers:
+                if randrange(0, 5) == 4:
+                    handler.refresh()
+                handler.check()
+            c = 0
+
+        c += 1
+        sleep(1)
 
 
-while 1:
-    t = Thread(target=loop, daemon=True)
-    print('Running background automation daemon...')
-    t.start()
-    t.join()
-
+t = Thread(target=loop, daemon=True)
+log('Running background daemon...')
+t.start()

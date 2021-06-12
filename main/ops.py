@@ -43,16 +43,3 @@ class Comm:
 
 
 mqtt = Mqtt('syrabond_server_' + str(uuid()), clean_session=False, handler=MessageHandler())
-
-
-def process_messages():
-    sleep(5)
-    mqtt.external_handler.load_resources()
-    while True:
-        sleep(1)
-        mqtt.check_for_messages()
-
-
-t = threading.Thread(target=process_messages, daemon=True)
-t.start()
-

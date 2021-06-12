@@ -97,7 +97,9 @@ class ChanneledModel(models.Model):
 
     def add_channel(self, channel):
         channel_record = Channel.objects.get_or_create(key=channel)[0]
-        self.channels.set((*self.channels.all(), channel_record))
+        print(channel_record)
+        print(self.channels.all())
+        self.channels.add(channel_record)
 
     class Meta:
         abstract = True
@@ -106,11 +108,12 @@ class ChanneledModel(models.Model):
 class StatedChanneledMixin(StatedModel, ChanneledModel):
 
     def update_state(self, state, channel=None):
-        if state.isdigit():
+        if isinstance(state, str) and state.isdigit():
             state = float(state)
         if channel:
             if channel not in self.channels.all():
-                self.add_channel(channel)
+                pass
+                #self.add_channel(channel)
             if self.state:
                 self.state.update({channel: state})
             else:
@@ -208,7 +211,7 @@ class Aggregate(BaseModel, TitledModel):
 
 class Channel(BaseModel):
 
-    key = models.CharField(verbose_name='Канал', max_length=10)
+    key = models.CharField(verbose_name='Канал', max_length=26 )
 
     def __str__(self):
         return self.key
@@ -430,8 +433,13 @@ class StatedVirtualDevice(BaseModel, StatedChanneledMixin):
 
     def engage(self):
         inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
-        self.state = inst()
-        self.save()
+        data = inst()
+        if isinstance(data, dict):
+            for channel, state in data.items():
+                self.update_state(state, channel=channel)
+        else:
+            self.update_state(data)
+
 
     @property
     def state_clear(self):
