@@ -2,9 +2,12 @@ from threading import Thread
 from time import sleep
 from random import randrange
 
+import uwsgidecorators
+
 from main.common import log
 from main.models import Scenario, Behavior, Regulator, StatedVirtualDevice
 from main.ops import mqtt
+from syrabond2 import settings
 
 
 class RegularHandler:
@@ -25,6 +28,7 @@ handler_classes = (Scenario, Behavior, Regulator, StatedVirtualDevice)
 handlers = [RegularHandler(klass) for klass in handler_classes]
 
 
+@uwsgidecorators.thread
 def loop():
     # Init handlers
     mqtt.external_handler.load_resources()
