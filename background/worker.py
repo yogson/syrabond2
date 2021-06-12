@@ -53,6 +53,7 @@ def loop():
         sleep(1)
 
 
-t = Thread(target=loop, daemon=True)
+# t = Thread(target=loop, daemon=True)
 log('Running background daemon...')
-t.start()
+loop()
+# t.start()
