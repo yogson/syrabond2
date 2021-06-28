@@ -22,8 +22,7 @@ class Weather:
 
     def __init__(self, **kwargs):
         self.updated_at = datetime.now()
-        self.data = {}
-        self.update_data()
+        self.data = self.update_data()
 
     def __call__(self, *args, **kwargs):
         if self.updated_at + timedelta(minutes=10) < datetime.now():
@@ -35,12 +34,12 @@ class Weather:
         try:
             data = self.get_data()
         except:
-            return
-        self.data.update({
+            return {}
+        return {
             'sunrise': datetime.fromtimestamp(data.get('sys', {}).get('sunrise', 0)).time().strftime('%H:%M'),
             'sunset': datetime.fromtimestamp(data.get('sys', {}).get('sunset', 0)).time().strftime('%H:%M'),
             'current_temp': round(data.get('main', {}).get('temp', 273.15) - 273.15, 1)
-        })
+        }
 
     def get_data(self):
         return requests.get(self.link).json()

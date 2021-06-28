@@ -37,7 +37,8 @@ class TitledModel(models.Model):
 
     title = models.CharField(
         verbose_name='Имя',
-        max_length=100
+        max_length=100,
+        default='Unnamed'
     )
 
     def __str__(self):
@@ -219,6 +220,44 @@ class Channel(BaseModel):
     class Meta:
         verbose_name = 'Канал',
         verbose_name_plural = 'Каналы'
+
+
+class DeviceChannel(BaseModel):
+
+    channel = models.ForeignKey(
+        'Channel',
+        verbose_name='Канал',
+        related_name='sensor_channels',
+        on_delete=models.CASCADE
+    )
+
+    sensor = models.ForeignKey(
+        'Sensor',
+        verbose_name='Датчик',
+        related_name='sensor_channels',
+        on_delete=models.CASCADE
+    )
+
+    virtual_device = models.ForeignKey(
+        'VirtualDevice',
+        verbose_name='Виртуальное устройство',
+        related_name='sensor_channels',
+        on_delete=models.CASCADE
+    )
+
+    def get_state(self):
+        return self.object.get_state(self.channel)
+
+    @property
+    def object(self):
+        return self.sensor if self.sensor else self.virtual_device
+
+    def __str__(self):
+        return f'[{self.object}].{self.channel}'
+
+    class Meta:
+        verbose_name = 'Канал датчика',
+        verbose_name_plural = 'Каналы датчика'
 
 
 class Tag(BaseModel, TitledModel):
@@ -405,12 +444,11 @@ class Resource(BaseModel, TitledModel):
         verbose_name_plural = 'Устройства'
 
 
-class StatedVirtualDevice(BaseModel, StatedChanneledMixin):
+class VirtualDevice(BaseModel, TitledModel, StatedChanneledMixin):
 
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
-        max_length=
-        50,
+        max_length=50,
         blank=False,
         null=False,
         choices=get_classes()
@@ -429,7 +467,7 @@ class StatedVirtualDevice(BaseModel, StatedChanneledMixin):
             self.engage()
 
     def __str__(self):
-        return self.virtual_class
+        return f'{self.title} {self.virtual_class}'
 
     def engage(self):
         inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
@@ -439,7 +477,6 @@ class StatedVirtualDevice(BaseModel, StatedChanneledMixin):
                 self.update_state(state, channel=channel)
         else:
             self.update_state(data)
-
 
     @property
     def state_clear(self):
@@ -809,7 +846,7 @@ class Condition(BaseModel):
     )
 
     virtual_device = models.ForeignKey(
-        StatedVirtualDevice,
+        'VirtualDevice',
         verbose_name='Виртуальное устройство',
         related_name="conditions",
         blank=True,
@@ -836,6 +873,15 @@ class Condition(BaseModel):
         max_length=32,
         null=True,
         blank=True
+    )
+
+    device_state = models.ForeignKey(
+        DeviceChannel,
+        verbose_name='Показания устройства',
+        related_name="conditions",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
     )
 
     @property
