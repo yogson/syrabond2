@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import requests
 
+from django.utils import datetime_safe
+
 
 class Clock:
 
@@ -22,13 +24,26 @@ class Weather:
 
     def __init__(self, **kwargs):
         self.updated_at = datetime.now()
-        self.data = self.update_data()
+        self.refresh()
 
     def __call__(self, *args, **kwargs):
         if self.updated_at + timedelta(minutes=10) < datetime.now():
-            self.update_data()
-
+            self.refresh()
         return self.data
+
+    def refresh(self):
+        self.data = self.update_data()
+        self.data.update({'daylight': self.get_daylight()})
+
+    def get_daylight(self):
+        sunrise_time = datetime.strptime(self.data.get('sunrise', '06:00'), '%H:%M')
+        sunrise_today = datetime_safe.datetime.now().replace(
+            hour=sunrise_time.hour, minute=sunrise_time.minute, second=0, microsecond=0)
+        sunset_time = datetime.strptime(self.data.get('sunset', '19:00'), '%H:%M')
+        sunset_today = datetime_safe.datetime.now().replace(
+            hour=sunset_time.hour, minute=sunset_time.minute, second=0, microsecond=0)
+
+        return sunset_today > datetime.now() > sunrise_today
 
     def update_data(self):
         try:
@@ -38,7 +53,7 @@ class Weather:
         return {
             'sunrise': datetime.fromtimestamp(data.get('sys', {}).get('sunrise', 0)).time().strftime('%H:%M'),
             'sunset': datetime.fromtimestamp(data.get('sys', {}).get('sunset', 0)).time().strftime('%H:%M'),
-            'current_temp': round(data.get('main', {}).get('temp', 273.15) - 273.15, 1)
+            'current_temp': round(data.get('main', {}).get('temp', 273.15) - 273.15, 1),
         }
 
     def get_data(self):
