@@ -856,7 +856,6 @@ class Condition(BaseModel, UsingChannelsModel):
     def check_condition(self):
         state = self.object.state.get(self.channel if self.channel else 'state')
         state = str(state).lower()
-        print(f'"{state}" {self.comparison} "{self.state.lower()}"')
         return eval(f'"{state}" {self.comparison} "{self.state.lower()}"')
 
     def __str__(self):
