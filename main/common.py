@@ -3,6 +3,43 @@ from datetime import datetime
 import logging
 from os import path
 
+
+class MessageHandler:
+
+    def __init__(self):
+        self.resources = {}
+        self.loaded = False
+
+    def load_resources(self):
+        if not self.loaded:
+            print('loading...')
+            from main.models import Sensor, Switch
+
+            for model in (Sensor, Switch):
+                qs = model.objects.all()
+                for obj in qs:
+                    print(obj)
+                    obj.connect(obj.listener, obj.topic)
+                    self.resources.update({obj.uid: obj})
+            self.loaded = True
+
+    def handle(self, payload):
+        _type, _id, channel, msg = payload
+
+        resource = self.resources.get(_id)
+        if resource:
+            resource.refresh_from_db()
+            resource.update_state(msg, channel)
+
+
+class Comm:
+    # 'to send': 'to store'
+    command_map = {
+        'off': 'off',
+        'on': 'on'
+    }
+
+
 """Common functions to be used in modules and classes of Syrabond."""
 
 def log(line, log_type='info'):
