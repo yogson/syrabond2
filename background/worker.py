@@ -5,7 +5,7 @@ from random import randrange
 import uwsgidecorators
 
 from main.common import log
-from main.models import Scenario, Behavior, Regulator, StatedVirtualDevice
+from main.models import Scenario, Behavior, Regulator, VirtualDevice
 from main.ops import mqtt
 from syrabond2 import settings
 
@@ -24,7 +24,7 @@ class RegularHandler:
             item.engage()
 
 
-handler_classes = (Scenario, Behavior, Regulator, StatedVirtualDevice)
+handler_classes = (Scenario, Behavior, Regulator, VirtualDevice)
 handlers = [RegularHandler(klass) for klass in handler_classes]
 
 
