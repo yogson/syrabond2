@@ -789,7 +789,8 @@ class Condition(BaseModel, UsingChannelsModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._meta.get_field('channel').choices = [(ch, ch) for ch in self.object.channels]
+        if self.pk:
+            self._meta.get_field('channel').choices = [(ch, ch) for ch in self.object.channels]
 
     switch = models.ForeignKey(
         Switch,
