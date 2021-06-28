@@ -57,6 +57,10 @@ class StatedModel(models.Model):
         default=dict
     )
 
+    @property
+    def channels(self):
+        return list(self.state.keys())
+
     def get_state(self, channel=None):
         if self.state is None:
             self.state = {}
@@ -83,38 +87,10 @@ class StatedModel(models.Model):
             })
         self.save()
 
-    class Meta:
-        abstract = True
-
-
-class ChanneledModel(models.Model):
-
-    channels = models.ManyToManyField(
-        'Channel',
-        verbose_name='Каналы',
-        related_name="%(class)s_resources",
-        blank=True
-    )
-
-    def add_channel(self, channel):
-        channel_record = Channel.objects.get_or_create(key=channel)[0]
-        print(channel_record)
-        print(self.channels.all())
-        self.channels.add(channel_record)
-
-    class Meta:
-        abstract = True
-
-
-class StatedChanneledMixin(StatedModel, ChanneledModel):
-
     def update_state(self, state, channel=None):
         if isinstance(state, str) and state.isdigit():
             state = float(state)
         if channel:
-            if channel not in self.channels.all():
-                pass
-                #self.add_channel(channel)
             if self.state:
                 self.state.update({channel: state})
             else:
@@ -123,6 +99,20 @@ class StatedChanneledMixin(StatedModel, ChanneledModel):
             self.state = {'state': state}
 
         self.save()
+
+    class Meta:
+        abstract = True
+
+
+class UsingChannelsModel(models.Model):
+
+    channel = models.CharField(
+        max_length=50,
+        choices=(('state', 'state'), ),
+        verbose_name='Канал датчика',
+        null=True,
+        default='state'
+    )
 
     class Meta:
         abstract = True
@@ -210,26 +200,7 @@ class Aggregate(BaseModel, TitledModel):
     )
 
 
-class Channel(BaseModel):
-
-    key = models.CharField(verbose_name='Канал', max_length=26 )
-
-    def __str__(self):
-        return self.key
-
-    class Meta:
-        verbose_name = 'Канал',
-        verbose_name_plural = 'Каналы'
-
-
 class DeviceChannel(BaseModel):
-
-    channel = models.ForeignKey(
-        'Channel',
-        verbose_name='Канал',
-        related_name='sensor_channels',
-        on_delete=models.CASCADE
-    )
 
     sensor = models.ForeignKey(
         'Sensor',
@@ -444,7 +415,7 @@ class Resource(BaseModel, TitledModel):
         verbose_name_plural = 'Устройства'
 
 
-class VirtualDevice(BaseModel, TitledModel, StatedChanneledMixin):
+class VirtualDevice(BaseModel, TitledModel, StatedModel):
 
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
@@ -521,7 +492,7 @@ class HeatingControllerApp(ConnectedResource):
         abstract = True
 
 
-class SwitchApp(ConnectedResource, StatedChanneledMixin):
+class SwitchApp(ConnectedResource, StatedModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -629,7 +600,7 @@ class Switch(SwitchApp):
         verbose_name_plural = 'Выключатели'
 
 
-class Sensor(SensorApp, StatedChanneledMixin):
+class Sensor(SensorApp, StatedModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -689,7 +660,11 @@ class HeatingController(HeatingControllerApp):
         verbose_name_plural = 'Контроллеры отопления'
 
 
-class Regulator(BaseModel):
+class Regulator(BaseModel, UsingChannelsModel):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._meta.get_field('channel').choices = [(ch, ch) for ch in self.sensor.channels]
 
     sensor = models.ForeignKey(
         Sensor,
@@ -697,15 +672,6 @@ class Regulator(BaseModel):
         related_name='regulators',
         on_delete=models.CASCADE,
         blank=False
-    )
-
-    channel = models.ForeignKey(
-        Channel,
-        verbose_name='Канал датчика',
-        related_name='regulators',
-        on_delete=models.CASCADE,
-        blank=False,
-        null=True
     )
 
     lower_bond = models.FloatField(
@@ -726,15 +692,18 @@ class Regulator(BaseModel):
         verbose_name='Действие',
         choices=Directions.choices,
         null=False,
-        default= True
+        default=True
     )
+
+    def set_channels(self):
+        self.channel
 
     def signal(self):
         self.sensor.refresh_from_db()
-        metric = self.sensor.get_state(self.channel.key)
+        metric = self.sensor.get_state(self.channel)
         try:
             metric = float(metric)
-        except ValueError:
+        except (ValueError, TypeError):
             return
         if metric >= self.upper_bond:
             return not self.direction
@@ -816,7 +785,11 @@ class Schedule(BaseModel):
         verbose_name_plural = 'Расписания'
 
 
-class Condition(BaseModel):
+class Condition(BaseModel, UsingChannelsModel):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._meta.get_field('channel').choices = [(ch, ch) for ch in self.object.channels]
 
     switch = models.ForeignKey(
         Switch,
@@ -830,15 +803,6 @@ class Condition(BaseModel):
     sensor = models.ForeignKey(
         Sensor,
         verbose_name='Датчик',
-        related_name="conditions",
-        blank=True,
-        null=True,
-        on_delete=models.CASCADE
-    )
-
-    channel = models.ForeignKey(
-        Channel,
-        verbose_name='Канал',
         related_name="conditions",
         blank=True,
         null=True,
@@ -889,7 +853,7 @@ class Condition(BaseModel):
         return self.sensor if self.sensor else self.switch if self.switch else self.virtual_device
 
     def check_condition(self):
-        state = self.object.state.get(self.channel.key if self.channel else 'state')
+        state = self.object.state.get(self.channel if self.channel else 'state')
         return eval(f'"{state}" {self.comparison} "{self.state}"')
 
     def __str__(self):

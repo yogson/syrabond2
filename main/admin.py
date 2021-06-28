@@ -87,7 +87,7 @@ class PremAdmin(admin.ModelAdmin):
 
 class ResAdmin(admin.ModelAdmin):
     actions = [make_on, make_off]
-    list_display = ('title', 'topic', 'state', 'updated_at', 'aggregates')
+    list_display = ('title', 'topic', 'state', 'updated_at', 'channels')
 
 
 class ButAdmin(admin.ModelAdmin):
@@ -142,7 +142,6 @@ admin.site.register(Switch, ResAdmin)
 admin.site.register(Sensor, ResAdmin)
 admin.site.register(Tag)
 admin.site.register(Group, GroupAdmin)
-admin.site.register(Channel)
 admin.site.register(HeatingController, ControllerAdmin)
 admin.site.register(HeatingCircuit)
 admin.site.register(Premise, PremAdmin)
