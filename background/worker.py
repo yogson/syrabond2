@@ -51,4 +51,4 @@ def loop():
 
 mqtt = Mqtt('syrabond_automation_' + str(uuid4()), clean_session=False, handler=MessageHandler())
 log('Running background daemon...')
-#loop()
+loop()
