@@ -855,7 +855,9 @@ class Condition(BaseModel, UsingChannelsModel):
 
     def check_condition(self):
         state = self.object.state.get(self.channel if self.channel else 'state')
-        return eval(f'"{state}" {self.comparison} "{self.state}"')
+        state = str(state).lower()
+        print(f'"{state}" {self.comparison} "{self.state.lower()}"')
+        return eval(f'"{state}" {self.comparison} "{self.state.lower()}"')
 
     def __str__(self):
         return f'{self.object} {(str(self.channel) + " ") if self.channel else ""}{self.comparison} {self.state}'
@@ -947,7 +949,9 @@ class Behavior(BaseModel, TitledModel, ConditionTypedModel):
 
     @property
     def off(self):
-        return self.target_conditions(self.conditions_off)
+        if self.conditions_off.exists():
+            return self.target_conditions(self.conditions_off)
+        return not self.on
 
     def engage(self):
         # if self.on and self.off:
