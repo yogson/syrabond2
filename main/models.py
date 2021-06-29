@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
 
-from main.ops import mqtt_sender as mqtt
+from main.ops import mqtt
 from main.utils import get_resources, get_classes, instance_klass
 
 
