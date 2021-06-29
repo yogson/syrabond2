@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timedelta
-from uuid import uuid4
 
 import django.db.models
 from django.utils import timezone
@@ -8,11 +7,8 @@ from django.db import models
 from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
 
-from main.common import MessageHandler
-from main.mqttsender import Mqtt
+from main.ops import mqtt
 from main.utils import get_resources, get_classes, instance_klass
-
-mqtt = Mqtt('syrabond_server_' + str(uuid4()), clean_session=False, handler=MessageHandler())
 
 
 DAYS_OF_WEEK = (

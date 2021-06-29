@@ -1,10 +1,9 @@
 from time import sleep
 from random import randrange
-from uuid import uuid4
 
-from main.common import log, MessageHandler
+from main.common import log
 from main.models import Scenario, Behavior, Regulator, VirtualDevice
-from main.mqttsender import Mqtt
+from main.ops import mqtt
 
 
 class RegularHandler:
@@ -49,6 +48,5 @@ def loop():
         sleep(1)
 
 
-mqtt = Mqtt('syrabond_automation_' + str(uuid4()), clean_session=False, handler=MessageHandler())
 log('Running background daemon...')
 loop()
