@@ -5,6 +5,7 @@ from os import path
 
 """Common functions to be used in modules and classes of Syrabond."""
 
+
 def log(line, log_type='info'):
     """Wrapper for logging. Writes line to log adding datetime."""
     time_string = datetime.now().strftime("%d.%m.%Y %H:%M:%S")

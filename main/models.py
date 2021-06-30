@@ -8,7 +8,9 @@ from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
 
 from main.ops import mqtt
+from main.tasks_scheduler import create_task
 from main.utils import get_resources, get_classes, instance_klass
+from .common import log
 
 
 DAYS_OF_WEEK = (
@@ -198,37 +200,6 @@ class Aggregate(BaseModel, TitledModel):
         related_name="aggregates",
         blank=True
     )
-
-
-class DeviceChannel(BaseModel):
-
-    sensor = models.ForeignKey(
-        'Sensor',
-        verbose_name='Датчик',
-        related_name='sensor_channels',
-        on_delete=models.CASCADE
-    )
-
-    virtual_device = models.ForeignKey(
-        'VirtualDevice',
-        verbose_name='Виртуальное устройство',
-        related_name='sensor_channels',
-        on_delete=models.CASCADE
-    )
-
-    def get_state(self):
-        return self.object.get_state(self.channel)
-
-    @property
-    def object(self):
-        return self.sensor if self.sensor else self.virtual_device
-
-    def __str__(self):
-        return f'[{self.object}].{self.channel}'
-
-    class Meta:
-        verbose_name = 'Канал датчика',
-        verbose_name_plural = 'Каналы датчика'
 
 
 class Tag(BaseModel, TitledModel):
@@ -485,7 +456,7 @@ class HeatingControllerApp(ConnectedResource):
             circuit.save()
             return True
         except Exception as e:
-            print(f'Error while turning {self.uid} {position}: {e}')
+            log(f'Error while turning {self.uid} {position}: {e}')
             return False
 
     class Meta:
@@ -849,15 +820,6 @@ class Condition(BaseModel, UsingChannelsModel):
         blank=True
     )
 
-    device_state = models.ForeignKey(
-        DeviceChannel,
-        verbose_name='Показания устройства',
-        related_name="conditions",
-        blank=True,
-        null=True,
-        on_delete=models.CASCADE
-    )
-
     @property
     def object(self):
         return self.sensor if self.sensor else self.button if self.button\
@@ -904,6 +866,7 @@ class Action(BaseModel):
         return f'{self.switch if self.switch else None} = {self.state}'
 
     def do(self):
+        log('Doing an action ' + str(self))
         self.switch.__getattribute__(self.state)()
 
     class Meta:
@@ -1020,18 +983,18 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel):
     def work_out(self):
         if self.target_conditions(conditions=self.conditions):
             for action in self.actions.all():
-                action.do()
+                create_task(action=action, scenario=self)
 
     def fire(self):
         if not self._armed:
-            print('Run scenario', self)
+            log('Arming scenario ' + str(self))
             self.arm()
             self.work_out()
 
     @property
     def schedule(self):
         return any((
-            sched.check_schedule() for sched in self.schedules.all()
+            schedule.check_schedule() for schedule in self.schedules.all()
         ))
 
     def engage(self):
