@@ -801,6 +801,15 @@ class Condition(BaseModel, UsingChannelsModel):
         on_delete=models.CASCADE
     )
 
+    button = models.ForeignKey(
+        Button,
+        verbose_name='Кнопка',
+        related_name="conditions",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+
     sensor = models.ForeignKey(
         Sensor,
         verbose_name='Датчик',
@@ -851,7 +860,8 @@ class Condition(BaseModel, UsingChannelsModel):
 
     @property
     def object(self):
-        return self.sensor if self.sensor else self.switch if self.switch else self.virtual_device
+        return self.sensor if self.sensor else self.button if self.button\
+            else self.switch if self.switch else self.virtual_device
 
     def check_condition(self):
         state = self.object.state.get(self.channel if self.channel else 'state')
