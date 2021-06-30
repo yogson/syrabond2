@@ -7,7 +7,7 @@ from django.db import models
 from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
 
-from main.ops import mqtt_sender as mqtt
+from main.ops import mqtt_sender, mqtt_listener
 from main.tasks_scheduler import create_task
 from main.utils import get_resources, get_classes, instance_klass
 from .common import log
@@ -430,7 +430,8 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
 
 
 class ConnectedResource(Resource):
-    listener = mqtt
+    listener = mqtt_listener
+    sender = mqtt_sender
 
     @staticmethod
     def connect(listener, topic):
@@ -478,7 +479,7 @@ class SwitchApp(ConnectedResource, StatedModel):
 
     def publish_cmd(self, cmd):
         try:
-            self.listener.mqttsend(self.topic, cmd, retain=True)
+            self.sender.mqttsend(self.topic, cmd, retain=True)
             self.update_state(cmd)
             return True
         except Exception as e:

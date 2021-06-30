@@ -42,6 +42,6 @@ class Comm:
     }
 
 
-mqtt_sender = Mqtt('syrabond_server_' + str(uuid()), clean_session=True)
+mqtt_sender = Mqtt('syrabond_sender_' + str(uuid()), clean_session=True)
 sleep(0.01)
-mqtt = Mqtt('syrabond_automation_' + str(uuid()), clean_session=False, handler=MessageHandler())
+mqtt_listener = Mqtt('syrabond_automation_' + str(uuid()), clean_session=False, handler=MessageHandler())

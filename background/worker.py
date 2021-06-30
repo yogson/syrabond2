@@ -4,7 +4,7 @@ import abc
 from main.common import log
 from main.models import Scenario, Behavior, Regulator, VirtualDevice
 from tasks.models import Task
-from main.ops import mqtt
+from main.ops import mqtt_listener as mqtt
 
 
 class Handler:
