@@ -10,6 +10,8 @@ __pycache__/
 
 # Django
 main/migrations/
+/static/
+/tasks/migrations/
 
 # Distribution / packaging
 .Python
@@ -132,5 +134,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-/main/migrations/
-/static/
+
