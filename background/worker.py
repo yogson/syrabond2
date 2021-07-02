@@ -1,5 +1,9 @@
+from datetime import datetime, timedelta
 from time import sleep
+from threading import Thread
 import abc
+
+from django.utils import timezone
 
 from main.common import log
 from main.models import Scenario, Behavior, Regulator, VirtualDevice
@@ -50,7 +54,7 @@ handler_classes = (Scenario, Behavior, Regulator, VirtualDevice)
 handlers = [RegularHandler(klass) for klass in handler_classes] + [TaskHandler()]
 
 
-def loop():
+def handlers_loop():
     # Init handlers
     mqtt.external_handler.load_resources()
 
@@ -70,5 +74,31 @@ def loop():
         sleep(1)
 
 
+def task_add_queue_loop():
+    while 1:
+        now = timezone.now()
+        #actual_tasks = Task.objects.filter(created_at__gt=datetime.now() - timedelta(hours=6))
+        for scenario in Scenario.objects.filter(active=True):
+            for schedule in scenario.schedules.all():
+                if now + timedelta(hours=6) >= schedule.next_fire > now:
+                    t = Task.objects.get_or_create(
+                        scenario=schedule.scenario,
+                        scheduled_on=schedule.next_fire,
+                        action=None
+                    )
+        sleep(60)
+
+
+def process_tasks_queue_loop():
+    while 1:
+        for task in Task.objects.filter(done=False):
+            if task.time_for():
+                task.run_scenario()
+                task.do_action()
+        sleep(15)
+
+
 log('Running background daemon...')
-loop()
+
+for loop in [process_tasks_queue_loop, task_add_queue_loop]:
+    Thread(target=loop).start()
