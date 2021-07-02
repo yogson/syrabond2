@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.db import models
 from django.db.models import JSONField
 from django.core.validators import validate_comma_separated_integer_list
+from typing import List
 
 from main.ops import mqtt_sender, mqtt_listener
 from main.tasks_scheduler import create_task
@@ -740,6 +741,36 @@ class Schedule(BaseModel):
                 self.time.hour == now.hour,
                 self.time.minute == now.minute
             ))
+
+    @property
+    def _days_list(self):
+        return [int(item.strip()) for item in self.days.split(',')]
+
+    @property
+    def is_today(self):
+        if self.daily:
+            return True
+        if datetime.now(tz=timezone.get_current_timezone()).isoweekday() in self._days_list:
+            return True
+        return False
+
+    @property
+    def next_fire(self):
+        now = datetime.now()
+
+        def get_next_day(today: int, days_list: List[int]):
+            days_list = sorted(days_list)
+            for day in days_list:
+                if day >= today:
+                    return now.date() + timedelta(days=day - today)
+
+            return now.date() + timedelta(days=7 - today + days_list[0])
+
+        next_fire_day = now.date() if self.is_today else get_next_day(now.isoweekday(), self._days_list)
+
+        return datetime(
+                next_fire_day.year, next_fire_day.month, next_fire_day.day) + timedelta(
+            hours=self.time.hour, minutes=self.time.minute)
 
     def save(self, *args, **kwargs):
         self.time = self.time.replace(self.time.hour, self.time.minute, 0, 0)
