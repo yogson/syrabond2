@@ -100,5 +100,5 @@ def process_tasks_queue_loop():
 
 log('Running background daemon...')
 
-for loop in [process_tasks_queue_loop, task_add_queue_loop]:
+for loop in [handlers_loop, process_tasks_queue_loop, task_add_queue_loop]:
     Thread(target=loop).start()
