@@ -728,7 +728,7 @@ class Schedule(BaseModel):
     )
 
     def check_schedule(self):
-        now = datetime.now(tz=timezone.get_current_timezone())
+        now = timezone.now()
 
         if self.daily:
             return all((
@@ -737,7 +737,7 @@ class Schedule(BaseModel):
             ))
         else:
             return all((
-                str(now.weekday()) in self.days,
+                str(now.isoweekday()) in self._days_list,
                 self.time.hour == now.hour,
                 self.time.minute == now.minute
             ))
@@ -750,13 +750,13 @@ class Schedule(BaseModel):
     def is_today(self):
         if self.daily:
             return True
-        if datetime.now(tz=timezone.get_current_timezone()).isoweekday() in self._days_list:
+        if timezone.now().isoweekday() in self._days_list:
             return True
         return False
 
     @property
     def next_fire(self):
-        now = datetime.now()
+        now = timezone.now()
 
         def get_next_day(today: int, days_list: List[int]):
             days_list = sorted(days_list)
@@ -1013,9 +1013,10 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel):
         self.save()
 
     def work_out(self):
+        log('Running the scenario ' + str(self))
         if self.target_conditions(conditions=self.conditions):
             for action in self.actions.all():
-                create_task(action=action, scenario=self)
+                action.do()
 
     def fire(self):
         if not self._armed:
