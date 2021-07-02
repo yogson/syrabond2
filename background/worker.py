@@ -38,6 +38,8 @@ class RegularHandler(Handler):
 
 class TaskHandler(Handler):
 
+    # Maybe next time... For now we will use process_tasks_queue_loop
+
     def __init__(self):
         self.instances = []
 
@@ -51,7 +53,7 @@ class TaskHandler(Handler):
 
 
 handler_classes = (Scenario, Behavior, Regulator, VirtualDevice)
-handlers = [RegularHandler(klass) for klass in handler_classes] + [TaskHandler()]
+handlers = [RegularHandler(klass) for klass in handler_classes]
 
 
 def handlers_loop():
@@ -60,8 +62,6 @@ def handlers_loop():
 
     for handler in handlers:
         handler.refresh()
-
-    c = 0
 
     while 1:
         # Check for new messages
