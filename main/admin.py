@@ -92,8 +92,8 @@ class ResAdmin(admin.ModelAdmin):
 
 class SwitchAdmin(admin.ModelAdmin):
     actions = [make_on, make_off]
-    list_display = ('title', 'topic', 'state', 'behavior', 'auto_off_after')
-    list_editable = ('behavior', 'auto_off_after')
+    list_display = ('title', 'topic', 'state', 'behavior', 'controlled', 'auto_off_after')
+    list_editable = ('behavior', 'auto_off_after', 'controlled')
 
 
 class ButAdmin(admin.ModelAdmin):
