@@ -1,9 +1,10 @@
 from django import forms
 from django.contrib import admin
 from django.db.models import Q
-
+from django.urls import re_path
 
 from .models import *
+from .viewsets import SwitchViewSet
 
 
 def make_on(modeladmin, request, queryset):
@@ -42,6 +43,7 @@ def check_switches(modeladmin, request, queryset):
     for item in queryset:
         item.engage()
 
+
 class ScheduleInline(admin.TabularInline):
     model = Schedule
     fk_name = 'scenario'
@@ -71,7 +73,6 @@ class AggForm(forms.ModelForm):
             self.fields[field].widget.can_view_related = True
             self.fields[field].widget.can_change_related = True
 
-
 class AggAdmin(admin.ModelAdmin):
     form = AggForm
 
@@ -86,8 +87,13 @@ class PremAdmin(admin.ModelAdmin):
 
 
 class ResAdmin(admin.ModelAdmin):
-    actions = [make_on, make_off]
     list_display = ('title', 'topic', 'state', 'updated_at', 'channels')
+
+
+class SwitchAdmin(admin.ModelAdmin):
+    actions = [make_on, make_off]
+    list_display = ('title', 'topic', 'state', 'behavior', 'auto_off_after')
+    list_editable = ('behavior', 'auto_off_after')
 
 
 class ButAdmin(admin.ModelAdmin):
@@ -138,7 +144,7 @@ class StatedVirtualDeviceAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'state_clear', )
 
 
-admin.site.register(Switch, ResAdmin)
+admin.site.register(Switch, SwitchAdmin)
 admin.site.register(Sensor, ResAdmin)
 admin.site.register(Tag)
 admin.site.register(Group, GroupAdmin)

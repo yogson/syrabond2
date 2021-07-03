@@ -9,7 +9,7 @@ from django.core.validators import validate_comma_separated_integer_list
 from typing import List
 
 from main.ops import mqtt_sender, mqtt_listener
-from main.tasks_scheduler import create_task
+from .tasks_interface import Taskable
 from main.utils import get_resources, get_classes, instance_klass
 from .common import log
 
@@ -465,7 +465,7 @@ class HeatingControllerApp(ConnectedResource):
         abstract = True
 
 
-class SwitchApp(ConnectedResource, StatedModel):
+class SwitchApp(ConnectedResource, StatedModel, Taskable):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -497,6 +497,13 @@ class SwitchApp(ConnectedResource, StatedModel):
             self.save()
             self.publish_cmd(position)
 
+    def schedule_task(self, scheduled: datetime, command: str):
+        action, _ = Action.objects.get_or_create(
+            switch=self,
+            state=command
+        )
+        return self.create_task(action=action, scheduled=scheduled)
+
     @property
     def switched_off(self):
         return self.state_ == 'off'
@@ -504,23 +511,6 @@ class SwitchApp(ConnectedResource, StatedModel):
     @property
     def switched_on(self):
         return self.state_ == 'on'
-
-    def on(self, direct=False):
-        self._turn('on', direct)
-
-    def off(self, direct=False):
-        self._turn('off', direct)
-
-    def toggle(self):
-        try:
-            if self.switched_off:
-                self.on(direct=True)
-            elif self.switched_on:
-                self.off(direct=True)
-            return True
-        except Exception as e:
-            print(f'Error while toggling {self.uid}: {e}')
-            return False
 
     class Meta:
         abstract = True
@@ -559,6 +549,12 @@ class Switch(SwitchApp):
         on_delete=models.CASCADE
     )
 
+    auto_off_after = models.TimeField(
+        verbose_name='Выключить через',
+        blank=True,
+        null=True
+    )
+
     controlled = models.BooleanField(
         verbose_name='Управляется',
         blank=False,
@@ -567,6 +563,29 @@ class Switch(SwitchApp):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def on(self, direct=False):
+        self._turn('on', direct)
+        if self.auto_off_after:
+            scheduled_on = timezone.now() + timedelta(
+                hours=self.auto_off_after.hour,
+                minutes=self.auto_off_after.minute,
+                seconds=self.auto_off_after.second)
+            self.schedule_task(scheduled_on, 'off')
+
+    def off(self, direct=False):
+        self._turn('off', direct)
+
+    def toggle(self):
+        try:
+            if self.switched_off:
+                self.on(direct=True)
+            elif self.switched_on:
+                self.off(direct=True)
+            return True
+        except Exception as e:
+            print(f'Error while toggling {self.uid}: {e}')
+            return False
 
     class Meta:
         verbose_name = 'Выключатель',
@@ -870,7 +889,7 @@ class Condition(BaseModel, UsingChannelsModel):
         verbose_name_plural = 'Условия'
 
 
-class Action(BaseModel):
+class Action(BaseModel, Taskable):
 
     switch = models.ForeignKey(
         Switch,
@@ -897,9 +916,15 @@ class Action(BaseModel):
     def __str__(self):
         return f'{self.switch if self.switch else None} = {self.state}'
 
+    def schedule_task(self, scheduled: datetime):
+        return self.create_task(action=self, scheduled=scheduled)
+
     def do(self):
-        log('Doing an action ' + str(self))
-        self.switch.__getattribute__(self.state)()
+        log('Performing the action ' + str(self))
+        try:
+            self.switch.__getattribute__(self.state)()
+        except Exception as e:
+            log(f'Failed to perform {self}: {e}')
 
     class Meta:
         verbose_name = 'Действие',
@@ -975,7 +1000,7 @@ class Behavior(BaseModel, TitledModel, ConditionTypedModel):
         verbose_name_plural = 'Шаблоны поведения'
 
 
-class Scenario(BaseModel, TitledModel, ConditionTypedModel):
+class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
 
     conditions = models.ManyToManyField(
         Condition,
@@ -998,44 +1023,23 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel):
         default=False
     )
 
-    _armed = models.BooleanField(
-        null=False,
-        blank=False,
-        default=False
-    )
-
-    def arm(self):
-        self._armed = True
-        self.save()
-
-    def disarm(self):
-        self._armed = False
-        self.save()
-
     def work_out(self):
         log('Running the scenario ' + str(self))
-        if self.target_conditions(conditions=self.conditions):
-            for action in self.actions.all():
-                action.do()
-
-    def fire(self):
-        if not self._armed:
-            log('Arming scenario ' + str(self))
-            self.arm()
-            self.work_out()
+        for action in self.actions.all():
+            action.do()
 
     @property
-    def schedule(self):
+    def its_time(self):
         return any((
             schedule.check_schedule() for schedule in self.schedules.all()
         ))
 
-    def engage(self):
-        if self.active and self.schedule and self.target_conditions(conditions=self.conditions):
-            return self.fire()
+    def schedule_task(self, scheduled: datetime):
+        return self.create_task(scenario=self, scheduled=scheduled)
 
-        if self._armed:
-            self.disarm()
+    def engage(self):
+        if self.active and self.its_time and self.target_conditions(conditions=self.conditions):
+            self.work_out()
 
     def save(self, *args, **kwargs):
         if self.id and not self.conditions.exists():

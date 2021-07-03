@@ -61,7 +61,7 @@ class Task(BaseModel):
         if self.scenario:
             with transaction.atomic():
                 try:
-                    self.scenario.work_out()
+                    self.scenario.engage()
                 except:
                     return
                 self.done = True
