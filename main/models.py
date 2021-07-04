@@ -136,15 +136,25 @@ class Button(BaseModel, TitledModel, StatedModel):
         blank=True
     )
 
+    push_out_actions = models.ManyToManyField(
+        'Action',
+        verbose_name='обратные действия',
+        related_name="push_out_buttons",
+        blank=True
+    )
+
     def push(self):
-        if self.actions:
-            for action in self.actions.all():
+        if self.latching and self.get_state() == 'on':
+            for action in self.push_out_actions.all():
                 action.do()
-        if self.latching:
-            if self.get_state() == 'on':
-                self.set_state('off')
-            else:
-                self.set_state('on')
+            self.set_state('off')
+            return
+
+        for action in self.actions.all():
+            action.do()
+
+        self.set_state('on') if self.latching else None
+
 
     class Meta:
         verbose_name = 'Кнопка',
