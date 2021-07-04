@@ -916,7 +916,8 @@ class Action(BaseModel, Taskable):
         choices=(
             ('on', 'on'),
             ('off', 'off'),
-            ('toggle', 'toggle')
+            ('toggle', 'toggle'),
+            ('push', 'push')
         ),
         null=True,
         blank=False,
@@ -1026,6 +1027,13 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
         blank=True
     )
 
+    buttons = models.ManyToManyField(
+        Button,
+        verbose_name='Нажимаемые кнопки',
+        related_name="scenarios",
+        blank=True
+    )
+
     active = models.BooleanField(
         verbose_name='Активен',
         null=False,
@@ -1037,6 +1045,8 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
         log('Running the scenario ' + str(self))
         for action in self.actions.all():
             action.do()
+        for button in self.buttons.all():
+            button.push()
 
     @property
     def its_time(self):
