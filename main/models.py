@@ -112,7 +112,7 @@ class UsingChannelsModel(models.Model):
     channel = models.CharField(
         max_length=50,
         choices=(('state', 'state'), ),
-        verbose_name='Канал датчика',
+        verbose_name='Канал устройства',
         null=True,
         default='state'
     )
@@ -727,7 +727,12 @@ class Regulator(BaseModel, UsingChannelsModel):
         verbose_name_plural = 'Регуляторы'
 
 
-class Schedule(BaseModel):
+class Schedule(BaseModel, UsingChannelsModel):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.pk and self.calc_time:
+            self._meta.get_field('channel').choices = [(ch, ch) for ch in self.calc_time.channels]
 
     daily = models.BooleanField(
         verbose_name='Ежедневно',
@@ -745,7 +750,18 @@ class Schedule(BaseModel):
     )
 
     time = models.TimeField(
-        verbose_name='Время'
+        verbose_name='Время',
+        null=True,
+        blank=True
+    )
+
+    calc_time = models.ForeignKey(
+        'VirtualDevice',
+        verbose_name='Виртуальное устройство',
+        related_name="schedules",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
     )
 
     scenario = models.ForeignKey(
@@ -758,18 +774,31 @@ class Schedule(BaseModel):
 
     def check_schedule(self):
         now = timezone.now()
+        time = self.time or self.parse_time(self.calc_time.get_state(self.channel))
 
         if self.daily:
             return all((
-                self.time.hour == now.hour,
-                self.time.minute == now.minute
+                time.hour == now.hour,
+                time.minute == now.minute
             ))
         else:
             return all((
                 str(now.isoweekday()) in self._days_list,
-                self.time.hour == now.hour,
-                self.time.minute == now.minute
+                time.hour == now.hour,
+                time.minute == now.minute
             ))
+
+    @staticmethod
+    def parse_time(time_string: str) -> datetime:
+        if ':' in time_string:
+            try:
+                return datetime.strptime(time_string, '%H:%M')
+            except ValueError:
+                pass
+            try:
+                return datetime.strptime(time_string, '%H:%M:%S')
+            except ValueError:
+                pass
 
     @property
     def _days_list(self):
@@ -786,6 +815,7 @@ class Schedule(BaseModel):
     @property
     def next_fire(self):
         now = timezone.now()
+        time = self.time or self.parse_time(self.calc_time.get_state(self.channel))
 
         def get_next_day(today: int, days_list: List[int]):
             days_list = sorted(days_list)
@@ -797,12 +827,14 @@ class Schedule(BaseModel):
 
         next_fire_day = now.date() if self.is_today else get_next_day(now.isoweekday(), self._days_list)
 
-        return datetime(
-                next_fire_day.year, next_fire_day.month, next_fire_day.day) + timedelta(
-            hours=self.time.hour, minutes=self.time.minute)
+        if time:
+            return datetime(
+                    next_fire_day.year, next_fire_day.month, next_fire_day.day) + timedelta(
+                hours=time.hour, minutes=time.minute)
 
     def save(self, *args, **kwargs):
-        self.time = self.time.replace(self.time.hour, self.time.minute, 0, 0)
+        if self.time:
+            self.time = self.time.replace(self.time.hour, self.time.minute, 0, 0)
 
         if self.daily:
             self.days = None
@@ -994,8 +1026,7 @@ class Behavior(BaseModel, TitledModel, ConditionTypedModel):
         return not self.on
 
     def engage(self):
-        # if self.on and self.off:
-        #     return
+
         if self.off:
             for switch in self.switches.filter(controlled=True):
                 if switch.state_ == 'on':

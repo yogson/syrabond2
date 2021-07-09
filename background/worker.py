@@ -80,8 +80,9 @@ def task_add_queue_loop():
         #actual_tasks = Task.objects.filter(created_at__gt=datetime.now() - timedelta(hours=6))
         for scenario in Scenario.objects.filter(active=True):
             for schedule in scenario.schedules.all():
-                if now + timedelta(hours=6) >= schedule.next_fire > now:
-                    schedule.scenario.schedule_task(schedule.next_fire)
+                next_fire = schedule.next_fire
+                if next_fire and (now + timedelta(hours=6) >= next_fire > now):
+                    schedule.scenario.schedule_task(next_fire)
         sleep(60)
 
 
