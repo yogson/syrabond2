@@ -21,7 +21,7 @@ class MessageHandler:
                 qs = model.objects.all()
                 for obj in qs:
                     print(obj)
-                    obj.connect(obj.listener, obj.topic)
+                    obj.connect(obj.topic)
                     self.resources.update({obj.uid: obj})
             self.loaded = True
 

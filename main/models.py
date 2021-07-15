@@ -77,19 +77,6 @@ class StatedModel(models.Model):
 
     get_state.short_description = 'Состояние'
 
-    def set_state(self, state, channel=None):
-        if self.state is None:
-            self.state = {}
-        if channel:
-            self.state.update({
-                channel: state
-            })
-        else:
-            self.state.update({
-                'state': state
-            })
-        self.save()
-
     def update_state(self, state, channel=None):
         if isinstance(state, str) and state.isdigit():
             state = float(state)
@@ -147,13 +134,13 @@ class Button(BaseModel, TitledModel, StatedModel):
         if self.latching and self.get_state() == 'on':
             for action in self.push_out_actions.all():
                 action.do()
-            self.set_state('off')
+            self.update_state('off')
             return
 
         for action in self.actions.all():
             action.do()
 
-        self.set_state('on') if self.latching else None
+        self.update_state('on') if self.latching else None
 
 
     class Meta:
@@ -441,12 +428,12 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
 
 
 class ConnectedResource(Resource):
-    listener = mqtt_listener
     sender = mqtt_sender
+    listener = mqtt_listener
 
-    @staticmethod
-    def connect(listener, topic):
-        listener.subscribe(topic)
+    @classmethod
+    def connect(cls, topic):
+        cls.listener.subscribe(topic)
 
     class Meta:
         abstract = True
@@ -463,7 +450,7 @@ class HeatingControllerApp(ConnectedResource):
         try:
             topic = self.topic + '/' + circuit.key
             message = position
-            self.listener.mqttsend(topic, message, retain=True)
+            # self.listener.mqttsend(topic, message, retain=True) TODO refactor all the class!
             circuit.state = position
             circuit.save()
             return True
@@ -491,7 +478,7 @@ class SwitchApp(ConnectedResource, StatedModel, Taskable):
     def publish_cmd(self, cmd):
         try:
             self.sender.mqttsend(self.topic, cmd, retain=True)
-            self.update_state(cmd)
+            # self.update_state(cmd)
             return True
         except Exception as e:
             print(f'Error while publishing {self.uid} {cmd}: {e}')
@@ -574,14 +561,26 @@ class Switch(SwitchApp):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def update_state(self, state, channel=None):
+        super().update_state(state, channel=None)
+        self._process_new_state(state)
+
+    def _process_new_state(self, state):
+        if state == 'on':
+            if self.auto_off_after:
+                self._schedule_auto_off()
+
+        # HERE you can put some state processing logics
+
     def on(self, direct=False):
         self._turn('on', direct)
-        if self.auto_off_after:
-            scheduled_on = timezone.now() + timedelta(
-                hours=self.auto_off_after.hour,
-                minutes=self.auto_off_after.minute,
-                seconds=self.auto_off_after.second)
-            self.schedule_task(scheduled_on, 'off')
+
+    def _schedule_auto_off(self):
+        scheduled_on = timezone.now() + timedelta(
+            hours=self.auto_off_after.hour,
+            minutes=self.auto_off_after.minute,
+            seconds=self.auto_off_after.second)
+        self.schedule_task(scheduled_on, 'off')
 
     def off(self, direct=False):
         self._turn('off', direct)
@@ -989,6 +988,8 @@ class ConditionTypedModel(models.Model):
     )
 
     def target_conditions(self, conditions: django.db.models.QuerySet):
+        if conditions.none():
+            return False
         all_conditions = (condition.check_condition() for condition in conditions.all())
         if self.conditions_type == '|':
             return any(all_conditions)
