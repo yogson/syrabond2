@@ -8,7 +8,7 @@
     },
     "logging": {
         "file": "syralog.log",
-        "level": "INFO"
+        "level": "DEBUG"
     }
 }
 
