@@ -23,17 +23,18 @@ class Weather:
     link = "http://api.openweathermap.org/data/2.5/weather?q=Onufriyevo&appid=1c5aecfe6332dd9e8de93ad5c949000f"
 
     def __init__(self, **kwargs):
-        self.updated_at = datetime.now()
-        self.refresh()
+        self.data = None
 
     def __call__(self, *args, **kwargs):
-        if self.updated_at + timedelta(minutes=10) < datetime.now():
+        updated_at = kwargs.get('service', {}).get('updated_at', 0)
+        if updated_at + timedelta(minutes=10).total_seconds() < datetime.now().timestamp():
             self.refresh()
         return self.data
 
     def refresh(self):
         self.data = self.update_data()
         self.data.update({'daylight': self.get_daylight()})
+        self.data.update({'service': {'updated_at': datetime.now().timestamp()}})
 
     def get_daylight(self):
         sunrise_time = datetime.strptime(self.data.get('sunrise', '06:00'), '%H:%M')

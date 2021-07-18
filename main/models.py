@@ -401,6 +401,13 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
         default=dict
     )
 
+    service_data = models.JSONField(
+        verbose_name='Служебная инф-я',
+        blank=True,
+        null=False,
+        default=dict
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.pk:
@@ -411,11 +418,16 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
 
     def engage(self):
         inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
-        data = inst()
+        data = inst(service=self.service_data)
         if isinstance(data, dict):
+            if 'service' in data:
+                self.service_data.update(
+                    data.pop('service')
+                )
+                self.save()
             for channel, state in data.items():
                 self.update_state(state, channel=channel)
-        else:
+        elif data:
             self.update_state(data)
 
     @property
