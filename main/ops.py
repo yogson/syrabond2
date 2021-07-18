@@ -2,8 +2,8 @@ from uuid import uuid4 as uuid
 from time import sleep
 import threading
 
+from .common import log
 from .mqttsender import Mqtt
-from .heating_control import HeatingController
 
 
 class MessageHandler:
@@ -14,13 +14,13 @@ class MessageHandler:
 
     def load_resources(self):
         if not self.loaded:
-            print('loading...')
+            log('Loading resources...')
             from main.models import Sensor, Switch
 
             for model in (Sensor, Switch):
                 qs = model.objects.all()
                 for obj in qs:
-                    print(obj)
+                    log(obj)
                     obj.connect(obj.topic)
                     self.resources.update({obj.uid: obj})
             self.loaded = True

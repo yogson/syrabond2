@@ -105,7 +105,7 @@ class Mqtt:
             if topic not in self.subscriptions:
                 self.client.subscribe(topic)
                 self.subscriptions.append(topic)
-                log('Subscribed: '+topic, log_type='debug')
+                log('Subscribed: '+topic)
             else:
                 log('Already subscribed on '+topic, log_type='debug')
             return True
