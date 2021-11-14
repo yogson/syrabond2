@@ -168,6 +168,10 @@ class Group(BaseModel, TitledModel):
     def switches(self):
         return get_resources(self, qs='switch_resources')
 
+    def switch(self, cmd):
+        for switch in self.switches:
+            switch.switch(cmd, direct=True)
+
     def __str__(self):
         return self.title
 
@@ -483,9 +487,9 @@ class SwitchApp(ConnectedResource, StatedModel, Taskable):
     def state_(self):
         return self.get_state()
 
-    def switch(self, cmd):
-        if hasattr(SwitchApp, cmd):
-            getattr(self, cmd)()
+    def switch(self, cmd, direct=False):
+        if hasattr(self, cmd):
+            getattr(self, cmd)(direct=direct)
 
     def publish_cmd(self, cmd):
         try:
@@ -677,7 +681,8 @@ class Regulator(BaseModel, UsingChannelsModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._meta.get_field('channel').choices = [(ch, ch) for ch in self.sensor.channels]
+        if self.pk:
+            self._meta.get_field('channel').choices = [(ch, ch) for ch in self.sensor.channels]
 
     sensor = models.ForeignKey(
         Sensor,
@@ -953,6 +958,15 @@ class Action(BaseModel, Taskable):
         on_delete=models.CASCADE
     )
 
+    group = models.ForeignKey(
+        Group,
+        verbose_name='Группа',
+        related_name="actions",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+
     state = models.CharField(
         verbose_name='Состояние',
         max_length=12,
@@ -967,8 +981,12 @@ class Action(BaseModel, Taskable):
         default='on'
     )
 
+    @property
+    def object(self):
+        return self.switch if self.switch else self.group
+
     def __str__(self):
-        return f'{self.switch if self.switch else None} = {self.state}'
+        return f'{self.object} = {self.state}'
 
     def schedule_task(self, scheduled: datetime):
         return self.create_task(action=self, scheduled=scheduled)
@@ -976,7 +994,7 @@ class Action(BaseModel, Taskable):
     def do(self):
         log('Performing the action ' + str(self))
         try:
-            self.switch.__getattribute__(self.state)()
+            self.object.switch(self.state)
         except Exception as e:
             log(f'Failed to perform {self}: {e}')
 

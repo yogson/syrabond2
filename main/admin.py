@@ -26,17 +26,13 @@ def workout(modeladmin, request, queryset):
 
 
 def switches_off(modeladmin, request, queryset):
-    resources = []
     for item in queryset:
-        resources += item.switches
-    [n.off() for n in resources]
+        item.switch("off")
 
 
 def switches_on(modeladmin, request, queryset):
-    resources = []
     for item in queryset:
-        resources += item.switches
-    [n.on() for n in resources]
+        item.switch("on")
 
 
 def check_switches(modeladmin, request, queryset):
