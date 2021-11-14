@@ -13,7 +13,6 @@ from .tasks_interface import Taskable
 from main.utils import get_resources, get_classes, instance_klass
 from .common import log
 
-
 DAYS_OF_WEEK = (
     (0, 'Monday'),
     (1, 'Tuesday'),
@@ -26,7 +25,6 @@ DAYS_OF_WEEK = (
 
 
 class BaseModel(models.Model):
-
     updated_at = models.DateTimeField(
         verbose_name='Обновлено',
         auto_now=True
@@ -37,7 +35,6 @@ class BaseModel(models.Model):
 
 
 class TitledModel(models.Model):
-
     title = models.CharField(
         verbose_name='Имя',
         max_length=100,
@@ -52,7 +49,6 @@ class TitledModel(models.Model):
 
 
 class StatedModel(models.Model):
-
     state = models.JSONField(
         verbose_name='Состояние',
         blank=True,
@@ -95,10 +91,9 @@ class StatedModel(models.Model):
 
 
 class UsingChannelsModel(models.Model):
-
     channel = models.CharField(
         max_length=50,
-        choices=(('state', 'state'), ),
+        choices=(('state', 'state'),),
         verbose_name='Канал устройства',
         null=True,
         default='state'
@@ -109,7 +104,6 @@ class UsingChannelsModel(models.Model):
 
 
 class Button(BaseModel, TitledModel, StatedModel):
-
     latching = models.BooleanField(
         verbose_name='фиксация',
         null=False,
@@ -142,14 +136,12 @@ class Button(BaseModel, TitledModel, StatedModel):
 
         self.update_state('on') if self.latching else None
 
-
     class Meta:
         verbose_name = 'Кнопка',
         verbose_name_plural = 'Кнопки'
 
 
 class Facility(BaseModel, TitledModel):
-
     key = models.CharField(verbose_name='код', max_length=10)
 
     def __str__(self):
@@ -161,7 +153,6 @@ class Facility(BaseModel, TitledModel):
 
 
 class Group(BaseModel, TitledModel):
-
     key = models.CharField(verbose_name='код', max_length=10)
 
     @property
@@ -181,7 +172,6 @@ class Group(BaseModel, TitledModel):
 
 
 class Aggregate(BaseModel, TitledModel):
-
     switches = models.ManyToManyField(
         'Switch',
         verbose_name='Выключатели',
@@ -215,7 +205,6 @@ class Tag(BaseModel, TitledModel):
 
 
 class Premise(BaseModel, TitledModel):
-
     location = models.ForeignKey(
         'self',
         verbose_name='Местонахождение',
@@ -313,7 +302,6 @@ class Premise(BaseModel, TitledModel):
 
 
 class Resource(BaseModel, TitledModel):
-
     uid = models.CharField(
         primary_key=True,
         verbose_name='Идентификатор',
@@ -376,7 +364,7 @@ class Resource(BaseModel, TitledModel):
 
     @property
     def topic(self):
-        return self.facility.key+'/'+self.type+'/'+self.uid
+        return self.facility.key + '/' + self.type + '/' + self.uid
 
     @property
     def type(self):
@@ -389,7 +377,6 @@ class Resource(BaseModel, TitledModel):
 
 
 class VirtualDevice(BaseModel, TitledModel, StatedModel):
-
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
         max_length=50,
@@ -543,7 +530,6 @@ class SensorApp(ConnectedResource):
 
 
 class Switch(SwitchApp):
-
     behavior = models.ForeignKey(
         'Behavior',
         verbose_name='Поведение',
@@ -628,7 +614,6 @@ class Sensor(SensorApp, StatedModel):
 
 
 class HeatingCircuit(BaseModel):
-
     key = models.CharField(
         verbose_name='Ключ',
         max_length=32,
@@ -661,7 +646,6 @@ class HeatingCircuit(BaseModel):
 
 
 class HeatingController(HeatingControllerApp):
-
     circuits = models.ManyToManyField(
         HeatingCircuit,
         verbose_name='Контуры',
@@ -713,9 +697,6 @@ class Regulator(BaseModel, UsingChannelsModel):
         default=True
     )
 
-    def set_channels(self):
-        self.channel
-
     def signal(self):
         self.sensor.refresh_from_db()
         metric = self.sensor.get_state(self.channel)
@@ -736,7 +717,8 @@ class Regulator(BaseModel, UsingChannelsModel):
                 switch.off()
 
     def __str__(self):
-        return f"{dict(self.Directions.choices).get(self.direction)} regulator of {self.sensor} ({self.upper_bond}->{self.lower_bond})"
+        vector = f"{self.upper_bond}->{self.lower_bond}" if self.direction is False else f"{self.lower_bond}->{self.upper_bond}"
+        return f"{dict(self.Directions.choices).get(self.direction)} regulator of {self.sensor} ({vector})"
 
     class Meta:
         verbose_name = 'Регулятор',
@@ -760,7 +742,7 @@ class Schedule(BaseModel, UsingChannelsModel):
     days = models.CharField(
         verbose_name='Дни недели',
         max_length=20,
-        validators=(validate_comma_separated_integer_list, ),
+        validators=(validate_comma_separated_integer_list,),
         null=True,
         blank=True
     )
@@ -845,7 +827,7 @@ class Schedule(BaseModel, UsingChannelsModel):
 
         if time:
             return datetime(
-                    next_fire_day.year, next_fire_day.month, next_fire_day.day) + timedelta(
+                next_fire_day.year, next_fire_day.month, next_fire_day.day) + timedelta(
                 hours=time.hour, minutes=time.minute)
 
     def save(self, *args, **kwargs):
@@ -931,7 +913,7 @@ class Condition(BaseModel, UsingChannelsModel):
 
     @property
     def object(self):
-        return self.sensor if self.sensor else self.button if self.button\
+        return self.sensor if self.sensor else self.button if self.button \
             else self.switch if self.switch else self.virtual_device
 
     def check_condition(self):
@@ -948,7 +930,6 @@ class Condition(BaseModel, UsingChannelsModel):
 
 
 class Action(BaseModel, Taskable):
-
     switch = models.ForeignKey(
         Switch,
         verbose_name='Выключатель',
@@ -1004,7 +985,6 @@ class Action(BaseModel, Taskable):
 
 
 class ConditionTypedModel(models.Model):
-
     conditions_type = models.CharField(
         verbose_name='Сочетание условий',
         max_length=1,
@@ -1031,7 +1011,6 @@ class ConditionTypedModel(models.Model):
 
 
 class Behavior(BaseModel, TitledModel, ConditionTypedModel):
-
     conditions_on = models.ManyToManyField(
         Condition,
         verbose_name='Условия включения',
@@ -1074,7 +1053,6 @@ class Behavior(BaseModel, TitledModel, ConditionTypedModel):
 
 
 class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
-
     conditions = models.ManyToManyField(
         Condition,
         verbose_name='Условия',
