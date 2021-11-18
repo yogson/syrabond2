@@ -364,7 +364,8 @@ class Resource(BaseModel, TitledModel):
 
     @property
     def topic(self):
-        return self.facility.key + '/' + self.type + '/' + self.uid
+        if self.pk:
+            return self.facility.key + '/' + self.type + '/' + self.uid
 
     @property
     def type(self):
@@ -434,9 +435,11 @@ class ConnectedResource(Resource):
     sender = mqtt_sender
     listener = mqtt_listener
 
-    @classmethod
-    def connect(cls, topic):
-        cls.listener.subscribe(topic)
+    def connect(self):
+        if self.topic:
+            ConnectedResource.listener.subscribe(self.topic)
+        else:
+            log(f'Unable to connect {self}, topic unknown.')
 
     class Meta:
         abstract = True
@@ -562,6 +565,8 @@ class Switch(SwitchApp):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if not self.state:
+            self.update_state("off")
 
     def update_state(self, state, channel=None):
         super().update_state(state, channel=None)

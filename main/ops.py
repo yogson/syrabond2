@@ -1,6 +1,5 @@
 from uuid import uuid4 as uuid
 from time import sleep
-import threading
 
 from .common import log
 from .mqttsender import Mqtt
@@ -11,24 +10,29 @@ class MessageHandler:
     def __init__(self):
         self.resources = {}
         self.loaded = False
+        self.models = []
 
-    def load_resources(self):
+    def load_resources(self, models: list):
         if not self.loaded:
             log('Loading resources...')
-            from main.models import Sensor, Switch
-
-            for model in (Sensor, Switch):
-                qs = model.objects.all()
-                for obj in qs:
-                    log(obj)
-                    obj.connect(obj.topic)
-                    self.resources.update({obj.uid: obj})
+            self.models = models
+            self.update_resources()
             self.loaded = True
+
+    def update_resources(self):
+        log('Fetching resources from DB...')
+        for model in self.models:
+            qs = model.objects.exclude(uid__in=self.resources)
+            for obj in qs:
+                log(f'connecting {obj}')
+                obj.connect()
+                self.resources.update({obj.uid: obj})
 
     def handle(self, payload):
         _type, _id, channel, msg = payload
 
         resource = self.resources.get(_id)
+
         if resource:
             resource.refresh_from_db()
             resource.update_state(msg, channel)

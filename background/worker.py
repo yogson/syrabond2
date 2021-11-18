@@ -6,7 +6,7 @@ import abc
 from django.utils import timezone
 
 from main.common import log
-from main.models import Scenario, Behavior, Regulator, VirtualDevice
+from main.models import Scenario, Behavior, Regulator, VirtualDevice, Switch, Sensor
 from tasks.models import Task
 from main.ops import mqtt_listener as mqtt
 
@@ -58,15 +58,17 @@ handlers = [RegularHandler(klass) for klass in handler_classes]
 
 def handlers_loop():
     # Init handlers
-    mqtt.external_handler.load_resources()
-
     for handler in handlers:
         handler.refresh()
 
-    while 1:
-        # Check for new messages
-        mqtt.check_for_messages()
+    # Let's wait for everything to be inited
+    sleep(10)
 
+    while 1:
+        # Check for new resources in DB
+        mqtt.external_handler.update_resources()
+
+        # Process automation handlers
         for handler in handlers:
             handler.refresh()
             handler.check()
@@ -95,7 +97,18 @@ def process_tasks_queue_loop():
         sleep(15)
 
 
+def process_messages_loop():
+    mqtt.external_handler.load_resources(
+        [Switch, Sensor]
+    )
+    while 1:
+        # Check for new messages
+        mqtt.check_for_messages()
+        sleep(0.1)
+
+
 log('Running background daemon...')
 
-for loop in [handlers_loop, process_tasks_queue_loop, task_add_queue_loop]:
+for loop in [process_messages_loop, handlers_loop, process_tasks_queue_loop, task_add_queue_loop]:
+    log(f'Starting thread with {loop} loop...')
     Thread(target=loop).start()

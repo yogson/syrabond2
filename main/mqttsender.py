@@ -58,7 +58,7 @@ class Mqtt:
         self.ping_topic = mqtt_config['ping_topic']
         self._client = mqtt.Client(self.name, clean_session=self.clean_session)
         self._client.username_pw_set(username=mqtt_config['user'], password=mqtt_config['password'])
-        self._client.on_message = self.message_to_buffer
+        self._client.on_message = self.process_message
         self._client.on_disconnect = self.on_disconnect
         self.message_buffer = Queue()
         self.external_handler = handler
@@ -122,7 +122,7 @@ class Mqtt:
     def wait_for_messages(self):
         self.client.loop_forever(retry_first_connection=True)
 
-    def message_to_buffer(self, client, userdata, message):
+    def process_message(self, client, userdata, message):
         if message:
             log(f' Got {message.payload.decode()} in {message.topic}', log_type='debug')
 
