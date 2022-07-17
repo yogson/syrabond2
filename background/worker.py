@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta, datetime
 from time import sleep
 from threading import Thread
 import abc
@@ -6,7 +6,7 @@ import abc
 from django.utils import timezone
 
 from main.common import log
-from main.models import Scenario, Behavior, Regulator, VirtualDevice, Switch, Sensor
+from main.models import Scenario, Behavior, Regulator, VirtualDevice, Switch, Sensor, Button
 from tasks.models import Task
 from main.ops import mqtt_listener as mqtt
 
@@ -35,6 +35,9 @@ class RegularHandler(Handler):
         for item in self.instances:
             item.engage()
 
+    def __str__(self):
+        return f'handler of {self.klass.__name__}'
+
 
 class TaskHandler(Handler):
 
@@ -52,25 +55,21 @@ class TaskHandler(Handler):
             item.do()
 
 
-handler_classes = (Scenario, Behavior, Regulator, VirtualDevice)
+handler_classes = (Behavior, Regulator, VirtualDevice)  # Behavior
 handlers = [RegularHandler(klass) for klass in handler_classes]
 
 
 def handlers_loop():
     # Init handlers
     for handler in handlers:
+        log(f'Initialize {handler}...')
         handler.refresh()
-
-    # Let's wait for everything to be inited
-    sleep(10)
+        if handler.instances:
+            log(f'Handle instances: {", ".join([str(i) for i in handler.instances])}')
 
     while 1:
-        # Check for new resources in DB
-        mqtt.external_handler.update_resources()
-
         # Process automation handlers
         for handler in handlers:
-            handler.refresh()
             handler.check()
 
         sleep(1)
@@ -79,36 +78,55 @@ def handlers_loop():
 def task_add_queue_loop():
     while 1:
         now = timezone.now()
-        #actual_tasks = Task.objects.filter(created_at__gt=datetime.now() - timedelta(hours=6))
         for scenario in Scenario.objects.filter(active=True):
             for schedule in scenario.schedules.all():
                 next_fire = schedule.next_fire
                 if next_fire and (now + timedelta(hours=6) >= next_fire > now):
-                    schedule.scenario.schedule_task(next_fire)
+                    task = schedule.scenario.schedule_task(next_fire)  # Do we need the task object?!
+
         sleep(60)
 
 
 def process_tasks_queue_loop():
     while 1:
+
+        # Check for new resources in DB
+        # TODO remove somewhere from here
+        mqtt.external_handler.update_resources()
+        # Check for new automation instances in DB
+        # TODO remove somewhere from here
+        for handler in handlers:
+            handler.refresh()
+
         for task in Task.objects.filter(done=False):
             if task.time_for():
-                task.run_scenario()
-                task.do_action()
+                task.do()
         sleep(15)
 
 
 def process_messages_loop():
     mqtt.external_handler.load_resources(
-        [Switch, Sensor]
+        [Switch, Sensor, Button]
     )
     while 1:
-        # Check for new messages
-        mqtt.check_for_messages()
-        sleep(0.1)
+        mqtt.wait_for_messages()
+        # Wait before reconnect
+        sleep(60)
+
+
+def maintenance_the_system():
+    """Perform on-start system maintenance and cleaning"""
+    log('Performing system cleanup...')
+    # delete old executed tasks
+    Task.objects.filter(done=True).filter(
+        updated_at__lt=datetime.now() - timedelta(days=30)).delete()
 
 
 log('Running background daemon...')
+maintenance_the_system()
 
 for loop in [process_messages_loop, handlers_loop, process_tasks_queue_loop, task_add_queue_loop]:
     log(f'Starting thread with {loop} loop...')
     Thread(target=loop).start()
+    # Let's init slowly
+    sleep(1)

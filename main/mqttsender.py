@@ -124,14 +124,13 @@ class Mqtt:
 
     def process_message(self, client, userdata, message):
         if message:
-            log(f' Got {message.payload.decode()} in {message.topic}', log_type='debug')
+            payload = message.payload.decode()
+            log(f' Got {payload} in {message.topic}', log_type='debug')
 
             if self.external_handler:
-                payload = parse_topic(message.topic)
-                payload.append(message.payload.decode())
-                self.external_handler.handle(payload)
+                self.external_handler.handle(topic=message.topic, payload=payload)
             else:
-                self.message_buffer.enqueue((message.topic, message.payload.decode()))
+                self.message_buffer.enqueue((message.topic, payload))
 
     def disconnect(self):
         self._client.disconnect()
@@ -165,7 +164,8 @@ def parse_topic(topic: str):
     _type, _id, channel = None, None, None
     splited = topic.split('/')
     _type = topic.split('/')[1]
-    _id = topic.split('/')[2]
+    if len(splited) > 2:
+        _id = topic.split('/')[2]
     if len(splited) > 3:
         channel = '.'.join(topic.split('/')[3:])
     return [_type, _id, channel]

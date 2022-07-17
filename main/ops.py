@@ -20,7 +20,6 @@ class MessageHandler:
             self.loaded = True
 
     def update_resources(self):
-        log('Fetching resources from DB...')
         for model in self.models:
             qs = model.objects.exclude(uid__in=self.resources)
             for obj in qs:
@@ -28,14 +27,23 @@ class MessageHandler:
                 obj.connect()
                 self.resources.update({obj.uid: obj})
 
-    def handle(self, payload):
-        _type, _id, channel, msg = payload
+    def handle(self, topic=None, payload=None):
+        resource = None
+        topic_items = topic.split('/')
 
-        resource = self.resources.get(_id)
+        for pos, item in enumerate(topic_items):
+            if item in self.resources:
+                resource = self.resources[item]
+                break
 
         if resource:
             resource.refresh_from_db()
-            resource.update_state(msg, channel)
+            if pos + 1 < len(topic_items):
+                channel = '.'.join(topic_items[pos + 1:])
+                resource.update_state(payload, channel)
+            else:
+                resource.update_state(payload)
+
 
 
 class Comm:

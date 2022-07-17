@@ -3,7 +3,7 @@ from datetime import datetime
 from django.db import models
 from django.db import transaction
 
-import main.models
+from main.common import log
 
 
 class BaseModel(models.Model):
@@ -31,13 +31,15 @@ class Task(BaseModel):
 
     done = models.BooleanField(default=False)
 
-    action = models.ForeignKey(
+    actions = models.ManyToManyField(
         'main.Action',
-        null=True,
+        verbose_name='Действия',
         blank=True,
-        related_name='tasks',
-        on_delete=models.CASCADE
+        related_name='tasks'
     )
+
+    def __str__(self):
+        return f'Task scheduled on {self.scheduled_on} for {self.scenario}'
 
     def time_for(self):
         now = datetime.now()
@@ -47,22 +49,13 @@ class Task(BaseModel):
             now.minute >= self.scheduled_on.minute
         ))
 
-    def do_action(self):
-        if self.action:
-            with transaction.atomic():
-                try:
-                    self.action.do()
-                except:
-                    return
-                self.done = True
-                self.save()
+    def cancel(self):
+        log(f"{self} has been canceled")
+        self.delete()
 
-    def run_scenario(self):
-        if self.scenario:
-            with transaction.atomic():
-                try:
-                    self.scenario.engage()
-                except:
-                    return
-                self.done = True
-                self.save()
+    def do(self):
+        log(f'Running the {self}')
+        for action in self.actions.all():
+            action.do()
+        self.done = True
+        self.save()

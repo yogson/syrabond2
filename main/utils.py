@@ -18,18 +18,18 @@ def get_resources(loc, qs=None, acc=None):
     return acc
 
 
-def get_classes() -> list:
+def get_classes(module) -> list:
     classes = []
-    module = main.plugins
 
-    classes += inspect.getmembers(
-            module,
-            lambda member: inspect.isclass(member) and member.__module__ == module.__name__
-    )
+    if module:
+
+        classes += inspect.getmembers(
+                module,
+                lambda member: inspect.isclass(member) and member.__module__ == module.__name__
+        )
 
     return [(x[0], x[0]) for x in classes]
 
 
-def instance_klass(klass, **kwargs):
-    module = main.plugins
+def instance_klass(module, klass, **kwargs):
     return getattr(module, klass)(**kwargs)

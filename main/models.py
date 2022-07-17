@@ -9,6 +9,7 @@ from django.core.validators import validate_comma_separated_integer_list
 from typing import List
 
 from main.ops import mqtt_sender, mqtt_listener
+from . import plugins, state_processors
 from .tasks_interface import Taskable
 from main.utils import get_resources, get_classes, instance_klass
 from .common import log
@@ -49,8 +50,26 @@ class TitledModel(models.Model):
 
 
 class StatedModel(models.Model):
+
+    PROCESSORS = state_processors
+
     state = models.JSONField(
         verbose_name='Состояние',
+        blank=True,
+        null=False,
+        default=dict
+    )
+
+    state_processor = models.CharField(
+        verbose_name='Класс обработчика состояния',
+        max_length=50,
+        blank=True,
+        null=True,
+        choices=get_classes(PROCESSORS)
+    )
+
+    settings = models.JSONField(
+        verbose_name='Настройки',
         blank=True,
         null=False,
         default=dict
@@ -73,16 +92,24 @@ class StatedModel(models.Model):
 
     get_state.short_description = 'Состояние'
 
+    def process_state(self, state):
+        try:
+            processor = instance_klass(self.PROCESSORS, self.state_processor, settings=self.settings)
+            processed_state = processor(raw_state=state)
+            self.state.update(processed_state)
+        except Exception as e:
+            log(f'Unable to process state of {self}: {e}')
+
     def update_state(self, state, channel=None):
-        if isinstance(state, str) and state.isdigit():
-            state = float(state)
-        if channel:
-            if self.state:
+        if self.state_processor:
+            self.process_state(state)
+        else:
+            if isinstance(state, str) and state.isdigit():
+                state = float(state)
+            if channel:
                 self.state.update({channel: state})
             else:
-                self.state = {channel: state}
-        else:
-            self.state = {'state': state}
+                self.state = {'state': state}
 
         self.save()
 
@@ -103,44 +130,6 @@ class UsingChannelsModel(models.Model):
         abstract = True
 
 
-class Button(BaseModel, TitledModel, StatedModel):
-    latching = models.BooleanField(
-        verbose_name='фиксация',
-        null=False,
-        default=False
-    )
-
-    actions = models.ManyToManyField(
-        'Action',
-        verbose_name='действия',
-        related_name="buttons",
-        blank=True
-    )
-
-    push_out_actions = models.ManyToManyField(
-        'Action',
-        verbose_name='обратные действия',
-        related_name="push_out_buttons",
-        blank=True
-    )
-
-    def push(self):
-        if self.latching and self.get_state() == 'on':
-            for action in self.push_out_actions.all():
-                action.do()
-            self.update_state('off')
-            return
-
-        for action in self.actions.all():
-            action.do()
-
-        self.update_state('on') if self.latching else None
-
-    class Meta:
-        verbose_name = 'Кнопка',
-        verbose_name_plural = 'Кнопки'
-
-
 class Facility(BaseModel, TitledModel):
     key = models.CharField(verbose_name='код', max_length=10)
 
@@ -152,16 +141,19 @@ class Facility(BaseModel, TitledModel):
         verbose_name_plural = 'Объекты'
 
 
-class Group(BaseModel, TitledModel):
-    key = models.CharField(verbose_name='код', max_length=10)
+class SetWithSwitches:
 
     @property
     def switches(self):
         return get_resources(self, qs='switch_resources')
 
-    def switch(self, cmd):
+    def switch(self, cmd, **kwargs):
         for switch in self.switches:
             switch.switch(cmd, direct=True)
+
+
+class Group(BaseModel, TitledModel, SetWithSwitches):
+    key = models.CharField(verbose_name='код', max_length=10)
 
     def __str__(self):
         return self.title
@@ -194,7 +186,7 @@ class Aggregate(BaseModel, TitledModel):
     )
 
 
-class Tag(BaseModel, TitledModel):
+class Tag(BaseModel, TitledModel, SetWithSwitches):
 
     def __str__(self):
         return self.title
@@ -204,7 +196,13 @@ class Tag(BaseModel, TitledModel):
         verbose_name_plural = 'Тэги'
 
 
-class Premise(BaseModel, TitledModel):
+class Premise(BaseModel, TitledModel, UsingChannelsModel):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.pk and self.heating_sensor:
+            self._meta.get_field('channel').choices = [(ch, ch) for ch in self.heating_sensor.channels]
+
     location = models.ForeignKey(
         'self',
         verbose_name='Местонахождение',
@@ -302,6 +300,7 @@ class Premise(BaseModel, TitledModel):
 
 
 class Resource(BaseModel, TitledModel):
+
     uid = models.CharField(
         primary_key=True,
         verbose_name='Идентификатор',
@@ -309,6 +308,13 @@ class Resource(BaseModel, TitledModel):
         blank=False,
         null=False,
         db_index=True
+    )
+
+    custom_topic = models.CharField(
+        verbose_name='Топик',
+        max_length=150,
+        blank=True,
+        null=True
     )
 
     facility = models.ForeignKey(
@@ -365,7 +371,9 @@ class Resource(BaseModel, TitledModel):
     @property
     def topic(self):
         if self.pk:
-            return self.facility.key + '/' + self.type + '/' + self.uid
+            if not self.custom_topic:
+                return '/'.join((self.facility.key, self.type, self.uid))
+            return '/'.join((self.custom_topic, self.uid))
 
     @property
     def type(self):
@@ -378,19 +386,15 @@ class Resource(BaseModel, TitledModel):
 
 
 class VirtualDevice(BaseModel, TitledModel, StatedModel):
+
+    MODULE = plugins
+
     virtual_class = models.CharField(
         verbose_name='Класс плагина',
         max_length=50,
         blank=False,
         null=False,
-        choices=get_classes()
-    )
-
-    settings = models.JSONField(
-        verbose_name='Настройки',
-        blank=True,
-        null=False,
-        default=dict
+        choices=get_classes(MODULE)
     )
 
     service_data = models.JSONField(
@@ -409,7 +413,7 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
         return f'{self.title} {self.virtual_class}'
 
     def engage(self):
-        inst = instance_klass(self.virtual_class, settings=self.settings, state=self.state)
+        inst = instance_klass(self.MODULE, self.virtual_class, settings=self.settings, state=self.state)
         data = inst(service=self.service_data)
         if isinstance(data, dict):
             if 'service' in data:
@@ -424,7 +428,8 @@ class VirtualDevice(BaseModel, TitledModel, StatedModel):
 
     @property
     def state_clear(self):
-        return self.state.get('state')
+        state = self.state.get('state', self.state)
+        return state
 
     class Meta:
         verbose_name = 'Виртуальное устройство',
@@ -484,7 +489,6 @@ class SwitchApp(ConnectedResource, StatedModel, Taskable):
     def publish_cmd(self, cmd):
         try:
             self.sender.mqttsend(self.topic, cmd, retain=True)
-            # self.update_state(cmd)
             return True
         except Exception as e:
             print(f'Error while publishing {self.uid} {cmd}: {e}')
@@ -526,10 +530,74 @@ class SensorApp(ConnectedResource):
 
     @property
     def topic(self):
-        return self.facility.key + '/' + self.type + '/' + self.uid + '/#'
+        if not self.custom_topic:
+            return super().topic + '/#'
+        else:
+            return super().topic
 
     class Meta:
         abstract = True
+
+
+class Command(BaseModel):
+
+    token = models.CharField(
+        verbose_name='токен',
+        max_length=45,
+        null=True,
+        blank=False
+    )
+
+    actions = models.ManyToManyField(
+        'Action',
+        verbose_name='действия',
+        related_name="buttons",
+        blank=True
+    )
+
+    button = models.ForeignKey(
+        'Button',
+        verbose_name='кнопка',
+        related_name='command',
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+
+    )
+
+    def __str__(self):
+        return f'{self.token} for {self.button}'
+
+    class Meta:
+        verbose_name = 'Команда',
+        verbose_name_plural = 'Команды'
+
+
+class Button(ConnectedResource, StatedModel):
+
+    def update_state(self, state, channel=None):
+        self._process_new_state(state)
+
+    def _process_new_state(self, state):
+        try:
+            cmd = json.loads(state)
+            self.push(cmd.get('action'))
+        except Exception as e:
+            log(f'Unable to parse data from device {self.uid}: {e}', log_type='error')
+
+    def push(self, token=None):
+        if token:
+            command = self.command.get(token=token)
+            if command:
+                for action in command.actions.all():
+                    action.do()
+
+    def __str__(self):
+        return f'{self.title} ({self.uid})'
+
+    class Meta:
+        verbose_name = 'Кнопка',
+        verbose_name_plural = 'Кнопки'
 
 
 class Switch(SwitchApp):
@@ -579,7 +647,7 @@ class Switch(SwitchApp):
 
         # HERE you can put some state processing logics
 
-    def on(self, direct=False):
+    def on(self, direct=True):
         self._turn('on', direct)
 
     def _schedule_auto_off(self):
@@ -589,15 +657,15 @@ class Switch(SwitchApp):
             seconds=self.auto_off_after.second)
         self.schedule_task(scheduled_on, 'off')
 
-    def off(self, direct=False):
+    def off(self, direct=True):
         self._turn('off', direct)
 
-    def toggle(self):
+    def toggle(self, direct=True):
         try:
             if self.switched_off:
-                self.on(direct=True)
+                self.on(direct=direct)
             elif self.switched_on:
-                self.off(direct=True)
+                self.off(direct=direct)
             return True
         except Exception as e:
             print(f'Error while toggling {self.uid}: {e}')
@@ -609,6 +677,10 @@ class Switch(SwitchApp):
 
 
 class Sensor(SensorApp, StatedModel):
+
+    @property
+    def MODULE(self):
+        return state_processors
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -842,6 +914,10 @@ class Schedule(BaseModel, UsingChannelsModel):
         if self.daily:
             self.days = None
 
+        if self.scenario:
+            # cancel all the scenario's corresponding tasks because the schedule has been changed
+            self.scenario.cancel_tasks()
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -862,15 +938,6 @@ class Condition(BaseModel, UsingChannelsModel):
     switch = models.ForeignKey(
         Switch,
         verbose_name='Выключатель',
-        related_name="conditions",
-        blank=True,
-        null=True,
-        on_delete=models.CASCADE
-    )
-
-    button = models.ForeignKey(
-        Button,
-        verbose_name='Кнопка',
         related_name="conditions",
         blank=True,
         null=True,
@@ -912,14 +979,14 @@ class Condition(BaseModel, UsingChannelsModel):
     state = models.CharField(
         verbose_name='Состояние',
         max_length=32,
-        null=True,
+        null=False,
+        default='',
         blank=True
     )
 
     @property
     def object(self):
-        return self.sensor if self.sensor else self.button if self.button \
-            else self.switch if self.switch else self.virtual_device
+        return self.sensor if self.sensor else self.switch if self.switch else self.virtual_device
 
     def check_condition(self):
         state = self.object.state.get(self.channel if self.channel else 'state')
@@ -953,6 +1020,15 @@ class Action(BaseModel, Taskable):
         on_delete=models.CASCADE
     )
 
+    tag = models.ForeignKey(
+        Tag,
+        verbose_name='Тег',
+        related_name="actions",
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+
     state = models.CharField(
         verbose_name='Состояние',
         max_length=12,
@@ -969,7 +1045,7 @@ class Action(BaseModel, Taskable):
 
     @property
     def object(self):
-        return self.switch if self.switch else self.group
+        return self.switch if self.switch else self.group if self.group else self.tag
 
     def __str__(self):
         return f'{self.object} = {self.state}'
@@ -980,7 +1056,7 @@ class Action(BaseModel, Taskable):
     def do(self):
         log('Performing the action ' + str(self))
         try:
-            self.object.switch(self.state)
+            self.object.switch(self.state, direct=True)
         except Exception as e:
             log(f'Failed to perform {self}: {e}')
 
@@ -1072,13 +1148,6 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
         blank=True
     )
 
-    buttons = models.ManyToManyField(
-        Button,
-        verbose_name='Нажимаемые кнопки',
-        related_name="scenarios",
-        blank=True
-    )
-
     active = models.BooleanField(
         verbose_name='Активен',
         null=False,
@@ -1102,13 +1171,24 @@ class Scenario(BaseModel, TitledModel, ConditionTypedModel, Taskable):
     def schedule_task(self, scheduled: datetime):
         return self.create_task(scenario=self, scheduled=scheduled)
 
+    def cancel_tasks(self):
+        tasks = self.tasks.filter(done=False)
+        for task in tasks:
+            task.cancel()
+
     def engage(self):
-        if self.active and self.its_time and self.target_conditions(conditions=self.conditions):
+        # We don't check schedule anymore, be AWARE!
+        if self.active and self.target_conditions(conditions=self.conditions):
             self.work_out()
 
     def save(self, *args, **kwargs):
-        if self.id and not self.conditions.exists():
-            self.conditions_type = '&'
+        # Some actions when saving existing scenarios
+        if self.id:
+            # set condition type if absent
+            if not self.conditions.exists():
+                self.conditions_type = '&'
+            # cancel all corresponding tasks because the scenario has been changed
+            self.cancel_tasks()
 
         super().save(*args, **kwargs)
 
